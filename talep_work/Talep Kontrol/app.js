@@ -3024,7 +3024,7 @@ function renderOperations(data){
   renderOperationsProjectManage();
   const note=$('#opsNote');if(note)note.textContent=(d.note||'')+(g.ambiguous?' • UYARI: Seçili depo için birden fazla ZMM098 satırı var; teminat toplamı karar amacıyla kullanılmamalıdır.':'');
 }
-async function loadDashboardView(){const btn=$('#dashboardRefreshBtn');dashboardLoading=true;updateDashboardExportState();if(btn){btn.disabled=true;btn.textContent='Yükleniyor…'}setDashboardAlert('Operasyon ve kontrol kayıtları hazırlanıyor…');try{const health=await getServiceHealth();if(!health)throw new Error('Yerel servis bağlantısı kurulamadı. Talep Kontrol uygulamasını yeniden açın.');if(health.app!=='Talep Kontrol')throw new Error('Yerel servis kimliği doğrulanamadı. Talep Kontrol uygulamasını yeniden açın.');if(!(health.capabilities&&health.capabilities.itemLevelDecision))throw new Error('Aynı sürümün eski yerel servis işlemi çalışıyor. Tüm Talep Kontrol pencerelerini kapatıp Talep Kontrol uygulamasını yeniden açın.');const retry=async(url,timeout=60000)=>{let last;for(let attempt=0;attempt<2;attempt++){try{return await fetchApiJson(url+(url.includes('?')?'&':'?')+'ts='+Date.now(),{},timeout)}catch(e){last=e;if(attempt===0)await sleep(450)}}throw last||new Error('Yerel servis yanıt vermedi.')};const qs=dashboardQueryString();const summary=await retry('/api/dashboard?compact=1&'+qs,60000);syncDashboardFilterOptions(summary.filterOptions);const [materialsResult,projectsResult,operationsResult]=await Promise.allSettled([retry('/api/dashboard-details?kind=materials&'+qs,60000),retry('/api/dashboard-details?kind=projects&'+qs,60000),retry('/api/operations?months=12&'+qs,60000)]);const data={...summary,contractorMaterials:[],projectDistributions:[]};const detailWarnings=[];if(materialsResult.status==='fulfilled')data.contractorMaterials=materialsResult.value.items||[];else detailWarnings.push('Yüklenici / malzeme detayları yüklenemedi.');if(projectsResult.status==='fulfilled')data.projectDistributions=projectsResult.value.items||[];else detailWarnings.push('Proje dağılımı detayları yüklenemedi.');if(operationsResult.status==='fulfilled')renderOperations(operationsResult.value);else{detailWarnings.push('Teminat / harcama operasyon verileri yüklenemedi.');renderOperations({note:'Operasyon verileri kullanılamıyor: '+String(operationsResult.reason?.message||operationsResult.reason||'')})}data.warnings=[...(Array.isArray(summary.warnings)?summary.warnings:[]),...detailWarnings];renderDashboard(data);if(detailWarnings.length)setDashboardAlert(detailWarnings.join(' ')+' Kullanılabilen bölümler gösteriliyor.','warn')}catch(e){console.error('Dashboard load error',e);let msg=String(e?.message||e||'Bilinmeyen hata');if(/failed to fetch/i.test(msg))msg='Yerel servis bağlantısı kesildi. Talep Kontrol uygulamasını yeniden açın.';setDashboardAlert('Operasyon İzleme yüklenemedi: '+msg,'bad');renderOperations({note:'Operasyon İzleme yüklenemedi: '+msg});$('#dashboardContent').hidden=true;$('#dashboardEmpty').hidden=false;$('#dashboardEmptyPath').textContent='Operasyon servisi kullanılamıyor. Ayarlar ekranındaki veri ve CSV kayıt klasörünü kontrol edin.'}finally{dashboardLoading=false;updateDashboardExportState();if(btn){btn.disabled=false;btn.textContent='Dashboard Yenile'}}}
+async function loadDashboardView(){const btn=$('#dashboardRefreshBtn');dashboardLoading=true;updateDashboardExportState();if(btn){btn.disabled=true;btn.textContent='Yükleniyor…'}setDashboardAlert('Operasyon ve kontrol kayıtları hazırlanıyor…');try{const health=await getServiceHealth();if(!health)throw new Error('Yerel servis bağlantısı kurulamadı. Talep Kontrol uygulamasını yeniden açın.');if(health.app!=='Talep Kontrol')throw new Error('Yerel servis kimliği doğrulanamadı. Talep Kontrol uygulamasını yeniden açın.');if(!(health.capabilities&&health.capabilities.itemLevelDecision))throw new Error('Aynı sürümün eski yerel servis işlemi çalışıyor. Tüm Talep Kontrol pencerelerini kapatıp Talep Kontrol uygulamasını yeniden açın.');const retry=async(url,timeout=60000)=>{let last;for(let attempt=0;attempt<2;attempt++){try{return await fetchApiJson(url+(url.includes('?')?'&':'?')+'ts='+Date.now(),{},timeout)}catch(e){last=e;if(attempt===0)await sleep(450)}}throw last||new Error('Yerel servis yanıt vermedi.')};const qs=dashboardQueryString();const summary=await retry('/api/dashboard?compact=1&'+qs,60000);syncDashboardFilterOptions(summary.filterOptions);const [materialsResult,projectsResult,operationsResult]=await Promise.allSettled([retry('/api/dashboard-details?kind=materials&'+qs,60000),retry('/api/dashboard-details?kind=projects&'+qs,60000),retry('/api/operations?months=12&'+qs,60000)]);const data={...summary,contractorMaterials:[],projectDistributions:[]};const detailWarnings=[];if(materialsResult.status==='fulfilled')data.contractorMaterials=materialsResult.value.items||[];else detailWarnings.push('Yüklenici / malzeme detayları yüklenemedi.');if(projectsResult.status==='fulfilled')data.projectDistributions=projectsResult.value.items||[];else detailWarnings.push('Proje dağılımı detayları yüklenemedi.');if(operationsResult.status==='fulfilled')renderOperations(operationsResult.value);else{const opsErr=normalizeServiceError(operationsResult.reason);detailWarnings.push('Teminat / harcama operasyon verileri yüklenemedi: '+opsErr);renderOperations({note:'Operasyon verileri kullanılamıyor: '+opsErr})}data.warnings=[...(Array.isArray(summary.warnings)?summary.warnings:[]),...detailWarnings];renderDashboard(data);if(detailWarnings.length)setDashboardAlert(detailWarnings.join(' ')+' Kullanılabilen bölümler gösteriliyor.','warn')}catch(e){console.error('Dashboard load error',e);const msg=normalizeServiceError(e);setDashboardAlert('Operasyon İzleme yüklenemedi: '+msg,'bad');renderOperations({note:'Operasyon İzleme yüklenemedi: '+msg});$('#dashboardContent').hidden=true;$('#dashboardEmpty').hidden=false;$('#dashboardEmptyPath').textContent='Operasyon servisi kullanılamıyor. Uygulamayı kapatıp yeniden açın; Ayarlar’daki kaynak klasörünü kontrol edin.'}finally{dashboardLoading=false;updateDashboardExportState();if(btn){btn.disabled=false;btn.textContent='Dashboard Yenile'}}}
 
 
 function settingsStatus(el,text,type='neutral'){if(!el)return;el.textContent=text;el.className='settings-status '+type}
@@ -3072,6 +3072,14 @@ function renderSettingsView(data){
   showSettingsAlert(warnings.join(' '),warnings.length?'warn':'');
   renderExemptionSettings();
 }
+function normalizeServiceError(err){
+  const msg=String(err?.message||err||'');
+  if(/failed to fetch|networkerror|load failed|err_connection|econnrefused/i.test(msg))
+    return 'Yerel servis bağlantısı yok. Tüm Talep Kontrol pencerelerini kapatıp kısayoldan yeniden açın.';
+  if(err?.name==='AbortError'||/zaman aşımı|aborted/i.test(msg))
+    return 'Yerel servis yanıt vermedi (zaman aşımı). Uygulamayı yeniden açın; ağ kaynak klasörü erişimini kontrol edin.';
+  return msg||'Yerel servis hatası.';
+}
 async function fetchApiJson(url,options={},timeoutMs=4500){
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeoutMs);
   try{
@@ -3081,8 +3089,8 @@ async function fetchApiJson(url,options={},timeoutMs=4500){
     if(!r.ok||data.ok===false)throw new Error(data.error||`Yerel servis yanıtı başarısız (${r.status}).`);
     return data;
   }catch(e){
-    if(e?.name==='AbortError')throw new Error('Yerel servis yanıt vermedi (zaman aşımı).');
-    throw e;
+    if(e?.name==='AbortError')throw new Error(normalizeServiceError(e));
+    throw new Error(normalizeServiceError(e));
   }finally{clearTimeout(timer)}
 }
 async function getServiceHealth(){
@@ -3530,9 +3538,10 @@ window.addEventListener('pageshow',()=>{closeSignalSent=false;sendHeartbeat()});
     await loadSources({silent:true});
   }catch(e){
     console.error(e);
-    applySourceAccess({current:false,reason:'Kaynaklar yüklenemedi: '+e.message});
-    state.diagnostics.push({level:'bad',text:e.message});
+    const msg=normalizeServiceError(e);
+    applySourceAccess({current:false,reason:'Kaynaklar yüklenemedi: '+msg});
+    state.diagnostics.push({level:'bad',text:msg});
     renderCommon();
-    toast('Kaynaklar yüklenemedi. Verileri Yenile ile tekrar deneyin.','warn');
+    toast(msg,'warn',7000);
   }
 })();
