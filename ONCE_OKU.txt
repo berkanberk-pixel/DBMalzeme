@@ -11,9 +11,14 @@ YAYIN
 KURULU BİLGİSAYAR
 Talep Kontrol'ü tamamen kapatıp normal kısayolundan yeniden açın.
 Ağdaki Aktif yayına erişebilen, otomatik güncellemesi açık kurulumlar yeni paketi açılışta alır.
-Eski kısayol açılmıyorsa veya güncelleme başlamıyorsa, ZIP'teki Talep_Kontrol.exe'yi sorunlu bilgisayarda
-çalıştırın ve yukarıdaki ortak yayın klasörünü seçip kurulumu tamamlayın. Kurucu mevcut kurulumu bulduğunda Güncelle, Temiz kurulum ve İptal seçeneklerini gösterir.
-Güncelle ile yerel kullanıcı verileri taşınır. Temiz kurulum eski kurulum klasöründeki yerel verileri siler.
+Eski kısayol açılmıyorsa, güncelleme başlamıyorsa veya "Salt okunur / KESIFLER" gibi eski durum hataları
+sürüyorsa ZIP'teki Talep_Kontrol.exe'yi sorunlu bilgisayarda çalıştırın.
+Kurucu mevcut kurulum veya %LOCALAPPDATA%\TalepKontrol verisi bulduğunda Güncelle, Temiz kurulum ve İptal gösterir.
+Güncelle: yerel kullanıcı verilerini yeni pakete taşır.
+Temiz kurulum: çalışan servisi durdurur; %LOCALAPPDATA%\Programs\TalepKontrol, %LOCALAPPDATA%\TalepKontrol
+(Index, WebView2, güncelleme kayıtları) ve eski geçici/yedek klasörleri tamamen siler; sıfırdan kurar.
+Onay penceresinden sonra işlem geri alınamaz. 0-Database merkezi kayıtları silinmez.
+Doğrudan temiz kurulum: Talep_Kontrol.exe --clean-install
 Kurucu başarılı işlem sonunda eski kurulumun kalıcı yedeğini oluşturmaz.
 
 DOĞRULAMA

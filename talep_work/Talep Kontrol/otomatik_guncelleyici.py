@@ -34,6 +34,7 @@ REQUIRED = {
     "amount-analysis.css", "app.js", "assets/brand/talep-kontrol-kurumsal.png", "assets/brand/talep-kontrol.ico.png", "brand-v1.css", "desktop-status.css", "desktop-status.js", "export-utils.js", "form-elements.css", "help-ui.css", "help-ui.js", "operations-experience.css", "operations-experience.js", "operations-tables.js", "operations-work.css", "operations-work.js", "responsive.css", "startup_runner.py", "styles.css", "ux28j.css", "ux28j.js", "webgl-themes28l.css", "webgl-themes28l.js",
     "control_read_index.py", "data_architecture_v2.py", "f604_summary.py", "form_excel.py", "kesif_drafts28q.py", "project_ids28r.py",
     "mb51_reconciliation.py", "commitment_balances.py", "capacity_projection.py", "capacity_source_facts.py", "operations_aggregation.py", "central_security.py", "indexed_engine.py", "parquet_minimal.py",
+    "source_row_diff.py",
 }
 KEEP_DIRS = (
     "_runtime", "_runtime_packages", "csv", "kayitlar", "cache",
