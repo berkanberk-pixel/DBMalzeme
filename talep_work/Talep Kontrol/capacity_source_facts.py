@@ -61,11 +61,16 @@ def read_facts(connection, request, exemptions, fingerprints):
         project_ids={text(r['project_id']) for r in active_projects}
         for row in rows:
             discovery_unit = text(row.get('uom'))
-            if not ex.get('discoveryExempt') and unit(discovery_unit) != material_unit:
+            # Kurumsal keşif CSV'lerinde birim sütunu olmayabilir; boş birim
+            # MB52'de doğrulanmış tekil temel birimi kullanır (indeks özetleriyle aynı).
+            normalized_discovery = unit(discovery_unit)
+            if not normalized_discovery:
+                discovery_unit = material_unit
+            elif not ex.get('discoveryExempt') and normalized_discovery != material_unit:
                 stock_units = ', '.join(sorted({text(r[0]) for r in master if text(r[0])}))
                 location = ' / '.join(filter(None, (text(row.get('sheet')), text(row.get('row_no')))))
                 raise BalanceError(
-                    f'{code}: {uy}/{dy} keşif birimi ({discovery_unit or "boş"}) '
+                    f'{code}: {uy}/{dy} keşif birimi ({discovery_unit}) '
                     f'MB52 temel birimiyle ({stock_units}) uyuşmuyor.'
                     + (f' Keşif kaynak satırı: {location}.' if location else '')
                 )

@@ -42,6 +42,10 @@ Kullanılabilir yerel indeks varken (READY veya STALE) uygulama yazılabilir kal
 İndeks arka planda güncellenirken veya yeni kaynak onayı beklerken salt okunur kilidi konulmaz.
 Salt okunur yalnızca kaynak eksik, indeks yok/bozuk veya ilk kez hazırlanıyorsa görünür.
 
+KEŞİF BİRİMİ
+Kurumsal keşif CSV'lerinde birim sütunu yoksa ölçü birimi MB52 temel biriminden alınır.
+Keşif satırında birim yazılıysa MB52 ile aynı olmalıdır (ADT/AD eşdeğer sayılır).
+
 KEŞİF KAPSAMI
 Proje ve malzeme bazındaki kalan adet = Keşif − MB51 fiili (− varsa bekleyen onay).
 Keşif ve MB51 kaynakları yüklüyse kapsam teyidi otomatiktir; Yönetim Paneli kaydı zorunlu değildir.
