@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="tr">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Talep Kontrol · Yayın Kontrol Merkezi</title>
+<style>
+:root{color-scheme:dark;--bg:#071423;--surface:#10243a;--line:#26405a;--text:#e9f3ff;--muted:#a7bed3;--accent:#61e1d1}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 'Segoe UI',sans-serif}
+.shell{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:100vh}aside{background:#0a1b2c;border-right:1px solid var(--line);padding:28px 18px}.brand{font-size:20px;font-weight:700;margin:0 10px 36px}.brand span{color:var(--accent)}
+nav{display:grid;gap:7px}button{font:inherit;color:inherit;border:1px solid transparent;background:none;border-radius:8px;padding:9px 12px;text-align:left;cursor:pointer}button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}nav button:hover,nav button[aria-current=true]{background:#17354d;color:var(--accent);border-color:#285569}
+main{max-width:1400px;padding:30px clamp(18px,4vw,52px)}header,.heading{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}header{color:var(--muted);border-bottom:1px solid var(--line);padding-bottom:17px}.preview{border:1px solid #2c6266;color:var(--accent);padding:4px 9px;border-radius:6px}h1{font-size:clamp(26px,4vw,40px);margin:22px 0 14px;letter-spacing:-.03em}button:disabled{opacity:.55;cursor:default}dialog{background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:24px}dialog::backdrop{background:#020b16bb}h2{font-size:18px;margin:0 0 14px}
+.hero,.box,.card{background:var(--surface);border:1px solid var(--line);border-radius:13px}.hero{display:grid;grid-template-columns:1fr 320px;align-items:center;padding:28px;overflow:hidden;background:radial-gradient(ellipse at right,#184760,#10243a 62%)}.hero p,.muted{color:var(--muted)}.hero p{max-width:490px}.stage{height:190px;display:grid;place-items:center;perspective:650px}.stack{position:relative;width:138px;height:106px;transform-style:preserve-3d;transform:rotateX(52deg) rotateZ(-29deg);animation:float 6s ease-in-out infinite}.plate{position:absolute;inset:0;border:1px solid #79f4e5;border-radius:13px;background:linear-gradient(130deg,#2b9caa,#0d465f);box-shadow:0 12px 35px #03132080;transform:translateZ(var(--z));display:grid;place-items:center;font-weight:700;letter-spacing:.14em}
+@keyframes float{50%{transform:translateY(-9px) rotateX(48deg) rotateZ(-25deg)}}@media(prefers-reduced-motion:reduce){.stack{animation:none}}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:17px 0}.card,.box{padding:17px}.card strong{display:block;margin-top:7px;font-size:19px;color:var(--accent)}.box{margin-top:15px;overflow:auto}.actions{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 17px}.actions button{border-color:#376079;background:#19354c}.actions button:first-child{background:#176873}.actions button:hover{border-color:var(--accent)}table{width:100%;border-collapse:collapse;text-align:left}td,th{padding:11px 12px;border-bottom:1px solid var(--line)}th{color:var(--muted);font-weight:600}tr:last-child td{border-bottom:none}.status{color:var(--accent)}.note{min-height:25px;color:#ffd18a}input{font:inherit;background:#091a2b;border:1px solid #376079;color:var(--text);padding:8px 10px;border-radius:6px}
+@media(max-width:850px){.shell{grid-template-columns:1fr}aside{padding:14px}.brand{margin:0 0 9px}nav{display:flex;flex-wrap:wrap}.hero{grid-template-columns:1fr 160px}.cards{grid-template-columns:repeat(2,1fr)}}@media(max-width:500px){.hero{grid-template-columns:1fr}.stage{height:150px}}
+</style>
+<div class="shell">
+<aside><div class="brand"><span>◆</span> Talep Kontrol</div><nav aria-label="Yönetim bölümleri">
+<button data-page="overview" aria-current="true">Genel Durum</button><button data-page="package">Paket ve Yayın</button><button data-page="history">Yayın Geçmişi</button><button data-page="users">Kullanıcılar ve Yetkiler</button><button data-page="scope">Kaynak Kapsamı</button><button data-page="permissions">Windows İzinleri</button><button data-page="logs">Tanılama ve İşlem Günlüğü</button>
+<button data-page="maintenance">Veri Bakımı</button>
+</nav></aside>
+<main>
+<header><span>Yayın Kontrol Merkezi</span><span class="preview" id="session">Oturum yükleniyor</span></header>
+<section id="overview"><h1>Genel Durum</h1>
+<div class="hero"><div><h2>Yayın akışı</h2><p>Hazırlık paketini doğrulayın, aktif yayınla karşılaştırın ve yayın geçmişini inceleyin.</p><div class="actions"><button data-go="package">Hazırlık paketini incele</button></div></div><div class="stage" aria-hidden="true"><div class="stack"><div class="plate" style="--z:0px"></div><div class="plate" style="--z:24px"></div><div class="plate" style="--z:48px">ZIP</div></div></div></div>
+<div class="cards"><div class="card">Aktif yayın<strong id="active-card">—</strong></div><div class="card">Hazırlık paketi<strong id="candidate-card">—</strong></div><div class="card">Paket doğrulaması<strong id="check-card">—</strong></div><div class="card">Arşivlenen yayınlar<strong id="history-card">—</strong></div></div>
+<div class="box"><h2>Ortak ağ ve oturum</h2><table><tbody><tr><th>Windows hesabı</th><td id="account"></td></tr><tr><th>Uygulama rolü</th><td id="role"></td></tr><tr><th>Yayın klasörü</th><td id="root"></td></tr></tbody></table></div></section>
+<section id="package" hidden><h1>Paket ve Yayın</h1><div class="box"><h2>Hazırlık paketi</h2><p>Hazırlık klasöründeki <strong>TalepKontrol.zip</strong> kullanılır.</p><div class="actions"><button data-action="check">Paketi doğrula</button><button data-action="repair">ZIP yapısını düzelt</button><button data-action="publish">Aktif yayımla</button></div><table><thead><tr><th>Kontrol</th><th>Durum</th></tr></thead><tbody><tr><td>ZIP okunabilirliği</td><td>Bekliyor</td></tr><tr><td>Gerekli dosyalar</td><td>Bekliyor</td></tr><tr><td>Boyut ve SHA-256</td><td>Bekliyor</td></tr></tbody></table></div></section>
+<section id="history" hidden><h1>Yayın Geçmişi</h1><div class="box"><div class="actions"><button data-action="rollback">Seçili yayına geri dön</button></div><table><thead><tr><th>Yayın</th><th>Yayınlayan</th><th>Yayın tarihi / durum</th></tr></thead><tbody id="history-rows"></tbody></table></div></section>
+<section id="users" hidden><h1>Kullanıcılar ve Yetkiler</h1><div class="box"><div class="actions"><button data-action="add">Kullanıcı ekle</button><button data-action="edit">Rolü düzenle</button><button data-action="disable">Devre dışı bırak</button><input id="search" aria-label="Kullanıcı ara" placeholder="Hesap veya rol ara"></div><table><thead><tr><th>Windows hesabı</th><th>Ad Soyad</th><th>Rol</th><th>Durum</th><th>Ortak onay ve kesin kayıt</th><th>Son değişikliği yapan</th></tr></thead><tbody id="user-rows"></tbody></table></div></section>
+
+<section id="scope" hidden><h1>Kaynak Kapsamı</h1>
+<div class="box">
+ <div class="actions">
+  <label>Hedef üretim yeri <input id="scope-plant" maxlength="24"></label>
+  <label>Hedef depo <input id="scope-depot" maxlength="24"></label>
+  <button id="scope-preview" type="button">Güncel kaynakları getir</button>
+  <button id="scope-list" type="button">Kapsam kayıtlarını listele</button>
+ </div>
+ <div id="scope-records"></div>
+ <p id="scope-state" role="status"></p>
+ <form id="scope-form" hidden>
+  <label>Kanıt referansı <input name="evidence" required maxlength="500" placeholder="SAP raporu, dosya veya işlem referansı"></label>
+  <p><label><input name="confirmed" type="checkbox" required> Keşif bakiyesinin fiili hareketleri içerdiğini ve bekleyen onayları içermediğini kaynak rapordan teyit ettim.</label></p>
+  <p>ZMM098 teminatı açık rezervasyonlar dahil tutardan alınır.</p>
+  <div class="actions"><button type="submit">Keşif kapsamını kaydet</button></div>
+ </form>
+</div></section>
+<section id="maintenance" hidden><h1>Veri Bakımı</h1>
+<div class="box">
+  <p>Bakım bu bilgisayardaki indeks dosyalarını kapsar. Ortak kayıtlar ve aktif kaynak kopyaları korunur.</p>
+  <div class="actions">
+    <button id="maintenance-clean" type="button">Geçici Verileri Temizle</button>
+    <button id="maintenance-reset" type="button">Yerel İndeksi Sıfırla</button>
+  </div>
+  <p id="maintenance-status" role="status"></p>
+</div></section>
+<section id="permissions" hidden><h1>Windows İzinleri</h1><div class="box">
+ <p>Ortak klasörün NTFS izinlerini görüntüleyin. Düzenlemek için Windows Güvenlik ekranını açın.</p>
+ <div class="actions">
+  <label>Klasör <select id="permission-folder"><option value="policy">Panel-Yetkileri</option><option value="records">0-Database</option><option value="panel">Yonetim</option><option value="active">Aktif</option><option value="staging">Hazırlık</option><option value="archive">Arşiv</option></select></label>
+  <button id="permissions-view" type="button">İzinleri görüntüle</button><button id="permissions-open" type="button">Windows Güvenlik ekranını aç</button>
+ </div>
+ <pre id="permissions-result" style="white-space:pre-wrap"></pre>
+</div></section>
+<section id="logs" hidden><h1>Tanılama ve İşlem Günlüğü</h1><div class="box"><div class="actions"><button data-action="diagnostics">Tanılamayı çalıştır</button></div><table><tbody><tr><th>Windows bileşenleri</th><td>Python ve WebView2</td></tr><tr><th>Ağ erişimi</th><td>Yayın ve merkezi kayıt klasörleri</td></tr><tr><th>Açılış günlüğü</th><td>Başarısız adım ve hata ayrıntısı</td></tr><tr><th>İşlem kaydı</th><td>Yayın ve yetki değişiklikleri</td></tr></tbody></table></div></section>
+<pre id="note" class="note" role="status" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
+<dialog id="editor"><form id="user-form"><h2>Kullanıcı yetkileri</h2>
+<p><label>Windows hesabı <input name="account" required placeholder="ETKİALANI\kullanıcı"></label></p>
+<div id="ad-search"><label>Windows hesabı ara <input id="ad-query" maxlength="48" placeholder="Ad veya kullanıcı adı"></label>
+<button type="button" id="ad-find">Ara</button><div id="ad-results" role="status"></div></div>
+<p><label>Ad Soyad <input name="displayName" maxlength="120"></label></p>
+<p><label>Rol <select name="role"><option>Görüntüleyici</option><option>Yayın Sorumlusu</option><option>Yönetici</option></select></label></p>
+<p><label><input name="enabled" type="checkbox" checked> Etkin</label></p>
+<p><label><input name="sharedApproval" type="checkbox"> Ortak onay ve kesin kayıt</label></p>
+<button type="submit">Kaydet</button><button id="cancel" type="button">Vazgeç</button>
+</form></dialog>
+</main></div>
+<script>
+const buttons=[...document.querySelectorAll('[data-page]')];
+const note=document.querySelector('#note');
+function openPage(id){
+  for(const button of buttons){
+    const active=button.dataset.page===id;
+    button.setAttribute('aria-current',String(active));
+    document.getElementById(button.dataset.page).hidden=!active;
+  }
+  note.textContent='';
+}
+for(const button of buttons)button.addEventListener('click',()=>openPage(button.dataset.page));
+for(const button of document.querySelectorAll('[data-go]'))button.addEventListener('click',()=>openPage(button.dataset.go));
+
+const byId=id=>document.getElementById(id);
+const put=(id,text)=>{byId(id).textContent=text};
+let state;
+let busy=false;
+async function request(action, data={}){
+  const response=await fetch('/api',{method:'POST',headers:{
+    'Content-Type':'application/json','X-Talep-Panel':location.pathname.slice(1)
+  },body:JSON.stringify({action,...data})});
+  const result=await response.json();
+  if(!response.ok)throw new Error(result.error);
+  return result;
+}
+for(const action of ['clean','reset']){
+  byId('maintenance-'+action).addEventListener('click',async()=>{
+    const controls=['clean','reset'].map(key=>byId('maintenance-'+key));
+    controls.forEach(button=>button.disabled=true);
+    try{
+      if(action==='clean'){
+        const result=await request('maintenance-preview');
+        if(!result.count){put('maintenance-status','Temizlenecek eski, yarım kalmış indeks bulunamadı.');return;}
+        if(!confirm(`${result.count} yarım kalmış yerel indeks silinecek. Devam edilsin mi?`))return;
+      }else if(!confirm('Yerel indeks etkin kaynaklardan yeniden kurulacak. Mevcut indeks yeni indeks doğrulanana kadar kullanılacak. Devam edilsin mi?'))return;
+      put('maintenance-status','İşlem sürüyor…');
+      const result=await request('maintenance-'+action);
+      put('maintenance-status',result.message);
+    }catch(error){put('maintenance-status',error.message);}
+    finally{controls.forEach(button=>button.disabled=false);}
+  });
+}
+function row(table,values,key){
+  const tr=table.insertRow();
+  if(key){
+    const input=document.createElement('input');
+    input.type='radio';input.name=table.id;input.value=key;
+    input.setAttribute('aria-label',key);
+    tr.insertCell().append(input);
+  }else{tr.insertCell();}
+  for(const value of values)tr.insertCell().textContent=value||'—';
+}
+for(const id of ['history-rows','user-rows']){
+  const th=document.createElement('th');
+  th.textContent='Seç';
+  byId(id).closest('table').querySelector('thead tr').prepend(th);
+}
+function selected(id){return document.querySelector('#'+id+' input:checked')?.value}
+function renderUsers(){
+  const query=byId('search').value.trim().toLocaleLowerCase('tr');
+  const table=byId('user-rows');table.replaceChildren();
+  for(const u of state.users){
+    if(!(u.account+' '+(u.displayName||'')+' '+u.role).toLocaleLowerCase('tr').includes(query))continue;
+    row(table,[u.account,u.displayName,u.role,u.enabled?'Etkin':'Devre dışı',u.enabled&&u.shared_approval?'Açık':'Kapalı',u.changed_by],u.account);
+  }
+}
+async function refresh(){
+  state=await request('state');
+  for(const id of ['account','role','root'])put(id,state[id]);
+  put('session',state.account+' · '+state.role);
+  put('active-card',state.active?'Yayın mevcut':'Yayın yok');
+  put('candidate-card',state.candidate?'Paket var':'Paket yok');
+  put('history-card',state.history.length+' kayıt');
+  const history=byId('history-rows');history.replaceChildren();
+  if(state.active)row(history,[state.active.release_id,state.active.published_by,'Aktif · '+(state.active.published_utc||'')]);
+  for(const h of state.history)row(history,[h.release_id,h.published_by,h.published_utc],h.archive);
+  renderUsers();
+  const publisher=['Yönetici','Yayın Sorumlusu'].includes(state.role);
+  for(const button of document.querySelectorAll('[data-action]')){
+    const a=button.dataset.action;
+    button.disabled=['add','edit','disable'].includes(a)?state.role!=='Yönetici':
+      ['repair','publish','rollback'].includes(a)&&!publisher;
+  }
+}
+async function run(action,data={}){
+  if(busy)return;
+  busy=true;
+  note.textContent='İşlem sürüyor…';
+  try{
+    const result=await request(action,data);
+    note.textContent=result.message;
+    if(action==='check')put('check-card','Sonuç hazır');
+    if(['repair','publish','rollback','user'].includes(action))await refresh();
+  }catch(error){note.textContent=error.message;}
+  finally{busy=false}
+}
+const form=byId('user-form');
+byId('cancel').onclick=()=>byId('editor').close();
+form.onsubmit=event=>{
+  event.preventDefault();
+  const fields=form.elements;
+  byId('editor').close();
+  run('user',{account:fields.account.value,displayName:fields.displayName.value,role:fields.role.value,enabled:fields.enabled.checked,shared_approval:fields.sharedApproval.checked});
+};
+const adFind=byId('ad-find');
+adFind.onclick=async()=>{
+  adFind.disabled=true;
+  const list=byId('ad-results');
+  list.textContent='Windows etki alanı aranıyor…';
+  try{
+    const {accounts}=await request('account-search',{query:byId('ad-query').value.trim()});
+    list.replaceChildren();
+    if(!accounts.length)list.textContent='Eşleşen hesap bulunamadı.';
+    for(const account of accounts){
+      const button=document.createElement('button');
+      button.type='button';
+      button.textContent=[account.displayName,account.account].filter(Boolean).join(' · ');
+      button.onclick=()=>{
+        form.elements.account.value=account.account;
+        form.elements.displayName.value=account.displayName||'';
+        list.replaceChildren();
+      };
+      list.append(button);
+    }
+  }catch(error){list.textContent=error.message;}
+  finally{adFind.disabled=false;}
+};
+byId('search').oninput=()=>{if(state)renderUsers()};
+for(const button of document.querySelectorAll('[data-action]')){
+  button.onclick=()=>{
+    if(!state||busy)return;
+    const action=button.dataset.action;
+    if(['add','edit','disable'].includes(action)){
+      const account=selected('user-rows');
+      const user=state.users.find(item=>item.account===account);
+      if(action!=='add'&&!user){note.textContent='Bir kullanıcı seçin.';return}
+      if(action==='disable'){
+        if(confirm(user.account+' devre dışı bırakılsın mı?'))run('user',{...user,enabled:false});
+        return;
+      }
+      form.elements.account.value=action==='add'?'':user.account;
+      form.elements.account.readOnly=action==='edit';
+      form.elements.displayName.value=action==='add'?'':user.displayName||'';
+      byId('ad-search').hidden=action!=='add';
+      byId('ad-query').value='';
+      byId('ad-results').replaceChildren();
+      form.elements.role.value=action==='add'?'Görüntüleyici':user.role;
+      form.elements.enabled.checked=action==='add'||user.enabled;
+      form.elements.sharedApproval.checked=action==='edit'&&user.shared_approval===true;
+      byId('editor').showModal();
+      return;
+    }
+    if(['repair','publish','rollback'].includes(action)){
+      const archive=selected('history-rows');
+      if(action==='rollback'&&!archive){note.textContent='Bir arşiv kaydı seçin.';return}
+      if(!confirm(button.textContent+' işlemi uygulansın mı?'))return;
+      run(action,{archive,confirmed:true});
+      return;
+    }
+    run(action);
+  };
+}
+let loadedScope=null;
+const scopeForm=byId('scope-form');
+function scopeInput(){return {targetUY:byId('scope-plant').value.trim().toUpperCase(),targetDY:byId('scope-depot').value.trim().toUpperCase()};}
+async function scopeAction(button, fn){
+  button.disabled=true;
+  put('scope-state','İşlem sürüyor…');
+  try{await fn();}catch(error){put('scope-state',error.message);}
+  finally{button.disabled=false;}
+}
+const previewButton=byId('scope-preview');
+previewButton.onclick=()=>scopeAction(previewButton,async()=>{
+  scopeForm.hidden=true;loadedScope=null;
+  const result=await request('scope-preview',scopeInput());
+  if(JSON.stringify(result.target)!==JSON.stringify(Object.values(scopeInput())))return;
+  loadedScope=result;
+  scopeForm.elements.evidence.value=result.current?result.record.evidenceReference||'':'';
+  scopeForm.elements.confirmed.checked=false;
+  scopeForm.querySelector('[type=submit]').disabled=state?.role!=='Yönetici';
+  scopeForm.hidden=false;
+  put('scope-state',result.current?'Kayıt güncel kaynaklarla eşleşiyor.':result.record?'Kaynak imzaları değişmiş. Kanıtları tekrar doğrulayın.':'Bu hedef depo için kapsam kaydı henüz yok.');
+});
+const listButton=byId('scope-list');
+listButton.onclick=()=>scopeAction(listButton,async()=>{
+  const {records}=await request('scope-list');
+  const list=byId('scope-records');list.replaceChildren();
+  for(const record of records){
+    const item=document.createElement('button');
+    item.type='button';
+    item.textContent=record.target.join(' / ')+' · '+(record.changed_by||'—');
+    item.onclick=()=>{
+      [byId('scope-plant').value,byId('scope-depot').value]=record.target;
+      previewButton.click();
+    };
+    list.append(item);
+  }
+  put('scope-state',records.length?records.length+' kayıt bulundu.':'Kapsam kaydı bulunamadı.');
+});
+scopeForm.onsubmit=event=>{
+  event.preventDefault();
+  if(!loadedScope||JSON.stringify(loadedScope.target)!==JSON.stringify(Object.values(scopeInput()))){
+    put('scope-state','Hedef değişti. Güncel kaynakları tekrar getirin.');return;
+  }
+  const button=scopeForm.querySelector('[type=submit]');
+  scopeAction(button,async()=>{
+    const response=await request('scope-save',{...scopeInput(),fingerprints:loadedScope.fingerprints,
+      evidenceReference:scopeForm.elements.evidence.value.trim(),confirmed:scopeForm.elements.confirmed.checked});
+    put('scope-state',response.message);
+    scopeForm.elements.confirmed.checked=false;
+  });
+};
+for(const action of ['permissions-view','permissions-open']){
+  const button=byId(action);
+  button.onclick=async()=>{
+    button.disabled=true;put('permissions-result','İşlem sürüyor…');
+    try{
+      const result=await request(action,{folder:byId('permission-folder').value});
+      put('permissions-result',[result.path,result.owner,result.message].filter(Boolean).join('\n'));
+    }catch(error){put('permissions-result',error.message);}
+    finally{button.disabled=false;}
+  };
+}
+refresh().catch(error=>{note.textContent=error.message});
+</script>
+</html>

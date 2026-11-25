@@ -1,0 +1,57 @@
+Talep Kontrol — Tam dağıtım
+Ortak yayın klasörü
+\\10.55.2.238\paylasim\GM_Planlama_Tesis_Direktorlugu\MALZEME YÖNETİMİ MÜDÜRLÜĞÜ\3 - Müdürlük Ortak Alan\1-Ortak Döküman Alanı\8-Talep Kontrol\9-Uygulama
+
+YAYIN
+1. Mevcut Aktif\manifest.json dosyasının yedeğini alın.
+2. ZIP içindeki Aktif\Paketler altındaki yeni paket klasörünü, paket yolunu koruyarak ortak Aktif\Paketler klasörüne kopyalayın.
+3. Kopya tamamlandıktan sonra Aktif\manifest.json dosyasını değiştirin. Kurulu istemciler bu kaydı okuyarak güncellenir.
+4. Yönetim Paneli için Yonetim klasörünü aynı adlı ortak klasöre birleştirin. Mevcut Panel-Yetkileri klasörü ayrı kalır.
+
+KURULU BİLGİSAYAR
+Talep Kontrol'ü tamamen kapatıp normal kısayolundan yeniden açın.
+Ağdaki Aktif yayına erişebilen, otomatik güncellemesi açık kurulumlar yeni paketi açılışta alır.
+Eski kısayol açılmıyorsa veya güncelleme başlamıyorsa, ZIP'teki Talep_Kontrol.exe'yi sorunlu bilgisayarda
+çalıştırın ve yukarıdaki ortak yayın klasörünü seçip kurulumu tamamlayın. Kurucu mevcut kurulumu bulduğunda Güncelle, Temiz kurulum ve İptal seçeneklerini gösterir.
+Güncelle ile yerel kullanıcı verileri taşınır. Temiz kurulum eski kurulum klasöründeki yerel verileri siler.
+Kurucu başarılı işlem sonunda eski kurulumun kalıcı yedeğini oluşturmaz.
+
+DOĞRULAMA
+Win + R ile %LOCALAPPDATA%\TalepKontrol\Guncelleme\son_kurulum.json dosyasını açın.
+sha256 alanı ağdaki Aktif\manifest.json dosyasındaki sha256 alanıyla aynı olmalıdır.
+Otomatik güncelleme ayrıntısı: %LOCALAPPDATA%\TalepKontrol\Guncelleme\guncelleme.log
+Açılış ayrıntısı: %LOCALAPPDATA%\TalepKontrol\Guncelleme\baslatma.log
+
+ORTAK ONAY VE KESİN KAYIT
+Yönetim Paneli > Kullanıcılar ve Yetkiler ekranından hesap bazında ayarlanır.
+Kullanıcı ayrıca 0-Database paylaşımında Windows yazma iznine sahip olmalıdır.
+Panel yetki dosyasına yalnız yetki yöneticileri yazabilmeli, uygulama kullanıcıları okuyabilmelidir.
+
+AÇILIŞ VE GÜNCELLEME
+Ana ekran açıldıktan sonra veri kaynakları ve yeni paket durumu arka planda kontrol edilir.
+Arka plan kontrolünde yeni paket bulunursa, bir sonraki açılışta doğrulanıp uygulanır.
+Güncelleme durumunu uygulamanın açılış bildiriminden izleyebilirsiniz.
+
+KEŞİF KAPSAMI
+Proje ve malzeme bazındaki kalan adet Keşif kaynağından alınır. Fiili hareketler MB51 ile doğrulanır.
+Talep Kontrol açıkken Yönetim Paneli > Kaynak Kapsamı ekranında hedef üretim yeri ve depo kodunu girin.
+Güncel kaynakları getir ile kaynakları yükleyin. Keşif raporundan fiili hareketlerin bakiyeye yansıdığını
+ve bekleyen ortak onayların bakiyeye yansımadığını teyit edin. Kanıt referansını girip kapsamı kaydedin.
+Kapsam kaydı Panel-Yetkileri altında tutulur. Keşif veya MB51 değiştiğinde kapsamı yeniden teyit edin.
+Yalnızca ZMM098 değiştiğinde mevcut keşif kapsamı geçerli kalır.
+
+TEMİNAT KURALI
+SAP rezervasyon numarası zorunludur. ZMM098 açık rezervasyonlar dahil tutarı kullanılır.
+Yönetim Paneli kapsam ekranı sadece keşif doğrulaması içindir.
+
+
+MERKEZİ KAYNAK KOPYASI
+İlk okunan kaynaklar Windows yazma izni varsa 0-Database\KAYNAK_VERILERI altına kaydedilir.
+İçeriği değişen dosyayı Veri Merkezi > Sistem ve Kaynaklar > Sistem Sağlığı ekranında
+Yeni veri var > Yeni Veriye Güncelle ile onaylayın. Kalite kontrolü başarılı olunca yeni kopya kullanılır.
+
+VERİ BAKIMI
+Talep Kontrol açıkken Yönetim Paneli > Veri Bakımı ekranını yönetici hesabıyla açın.
+Geçici Verileri Temizle, 24 saatten eski yarım kalmış yerel indeksleri listeler ve onayla kaldırır.
+Yerel İndeksi Sıfırla, aktif kaynaklardan yeni indeks kurar ve doğrulama başarılı olunca devreye alır.
+Ortak kayıtlar ve aktif kaynak kopyaları korunur.
