@@ -47,16 +47,49 @@ def _target_key(target):
     return tuple(mb51.text(code).upper() for code in target)
 
 
+def _auto_coverage(fingerprints, balance_digest, target):
+    """Keşif + MB51 snapshot varsa kapsam teyidi otomatik kabul edilir.
+
+    Kalan = Keşif − MB51 fiili (− bekleyen onay). Panel kaydı zorunlu değildir.
+    """
+    if not fingerprints.get('KESIFLER'):
+        return None, 'Keşif kaynağı yüklenmeden kalan miktar hesaplanamaz.'
+    if not fingerprints.get('MB51'):
+        return None, 'MB51 kaynağı yüklenmeden fiili düşüm yapılamaz.'
+    if not balance_digest:
+        return None, 'Ortak onay bakiyesi doğrulanamadı.'
+    if not all(_target_key(target)):
+        return None, 'Hedef üretim yeri ve depo zorunludur.'
+    return {
+        'verified': True,
+        'autoVerified': True,
+        'reservations': {},
+        'sourceFingerprints': fingerprints,
+        'balanceDigest': balance_digest,
+        'target': list(target),
+        'discoveryBasis': 'ACTUAL_INCLUDED_PENDING_EXCLUDED',
+        'evidenceReference': 'AUTO_MB51_KESIF',
+    }, ''
+
+
 def read_coverage(path, fingerprints, balance_digest, target):
-    """Read operator-attested coverage from the permission-managed policy folder."""
+    """Keşif kapsamı: MB51+Keşif varken otomatik; panel kaydı isteğe bağlı yedek."""
     unverified = {'verified': False, 'reservations': {},
                   'sourceFingerprints': fingerprints, 'balanceDigest': balance_digest,
                   'target': list(target)}
+    auto, auto_reason = _auto_coverage(fingerprints, balance_digest, target)
+    if auto:
+        return auto
+
+    # Kaynaklar eksikse panel kaydı da yetmez; net nedeni döndür.
+    if auto_reason and (not fingerprints.get('KESIFLER') or not fingerprints.get('MB51')):
+        return {**unverified, 'reason': auto_reason}
+
     try:
         with path.open(encoding='utf-8-sig') as stream:
             document = json.load(stream)
     except FileNotFoundError:
-        return {**unverified, 'reason': 'Merkezi keşif kapsam kaydı bulunamadı.'}
+        return {**unverified, 'reason': auto_reason or 'Merkezi keşif kapsam kaydı bulunamadı.'}
     except (OSError, ValueError):
         return {**unverified, 'reason': 'Merkezi keşif kapsam kaydı okunamadı.'}
 
@@ -80,7 +113,7 @@ def read_coverage(path, fingerprints, balance_digest, target):
     reference = record.get('evidenceReference')
     if not isinstance(reference, str) or not reference.strip():
         return {**unverified, 'reason': 'Kapsam kaydında kaynak kanıtı referansı eksik.'}
-    return {**unverified, 'verified': True,
+    return {**unverified, 'verified': True, 'autoVerified': False,
             'discoveryBasis': record['discoveryBasis'], 'evidenceReference': reference.strip()}
 
 

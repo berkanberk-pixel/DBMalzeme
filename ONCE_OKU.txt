@@ -38,12 +38,10 @@ Arka plan kontrolünde yeni paket bulunursa, bir sonraki açılışta doğrulan�
 Güncelleme durumunu uygulamanın açılış bildiriminden izleyebilirsiniz.
 
 KEŞİF KAPSAMI
-Proje ve malzeme bazındaki kalan adet Keşif kaynağından alınır. Fiili hareketler MB51 ile doğrulanır.
-Talep Kontrol açıkken Yönetim Paneli > Kaynak Kapsamı ekranında hedef üretim yeri ve depo kodunu girin.
-Güncel kaynakları getir ile kaynakları yükleyin. Keşif raporundan fiili hareketlerin bakiyeye yansıdığını
-ve bekleyen ortak onayların bakiyeye yansımadığını teyit edin. Kanıt referansını girip kapsamı kaydedin.
-Kapsam kaydı Panel-Yetkileri altında tutulur. Keşif veya MB51 değiştiğinde kapsamı yeniden teyit edin.
-Yalnızca ZMM098 değiştiğinde mevcut keşif kapsamı geçerli kalır.
+Proje ve malzeme bazındaki kalan adet = Keşif − MB51 fiili (− varsa bekleyen onay).
+Keşif ve MB51 kaynakları yüklüyse kapsam teyidi otomatiktir; Yönetim Paneli kaydı zorunlu değildir.
+Örnek: Keşif 10, MB51 hedef depoya nakil 3 → kullanılabilir kalan 7.
+Yönetim Paneli > Kaynak Kapsamı ekranı isteğe bağlı belgeleme içindir.
 
 TEMİNAT KURALI
 SAP rezervasyon numarası zorunludur. ZMM098 açık rezervasyonlar dahil tutarı kullanılır.
