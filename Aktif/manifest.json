@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "product": "Talep Kontrol",
-  "release_id": "talep-cd4e7ca2921385ef",
-  "package": "Paketler/talep-cd4e7ca2921385ef/TalepKontrol.zip",
-  "sha256": "74112f742dc8b4cfcbc8da50c905fea718fff1be59978b58ea95300bc16a8080",
-  "size_bytes": 56334326,
-  "published_utc": "2026-11-25T11:05:29.155875+00:00"
+  "release_id": "talep-6225bde14645031d",
+  "package": "Paketler/talep-6225bde14645031d/TalepKontrol.zip",
+  "sha256": "6225bde14645031d077bbd9f7e0fab33d61bb0ddf8627e551d1f230d224a746f",
+  "size_bytes": 56265604,
+  "published_utc": "2026-11-25T11:20:37.381083+00:00"
 }

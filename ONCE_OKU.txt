@@ -37,6 +37,11 @@ Ana ekran açıldıktan sonra veri kaynakları ve yeni paket durumu arka planda 
 Arka plan kontrolünde yeni paket bulunursa, bir sonraki açılışta doğrulanıp uygulanır.
 Güncelleme durumunu uygulamanın açılış bildiriminden izleyebilirsiniz.
 
+YEREL İNDEKS VE SALT OKUNUR
+Kullanılabilir yerel indeks varken (READY veya STALE) uygulama yazılabilir kalır.
+İndeks arka planda güncellenirken veya yeni kaynak onayı beklerken salt okunur kilidi konulmaz.
+Salt okunur yalnızca kaynak eksik, indeks yok/bozuk veya ilk kez hazırlanıyorsa görünür.
+
 KEŞİF KAPSAMI
 Proje ve malzeme bazındaki kalan adet = Keşif − MB51 fiili (− varsa bekleyen onay).
 Keşif ve MB51 kaynakları yüklüyse kapsam teyidi otomatiktir; Yönetim Paneli kaydı zorunlu değildir.

@@ -1370,8 +1370,8 @@ def record_security_status():
 def source_access_state(cfg, sources, engine):
     """Erişim, ağ adayına değil 0-Database / ACTIVE merkezi kopyaya dayanır.
 
-    Ağ klasöründe aday yoksa ama merkezi kayıt varsa uygulama salt okunur olmaz.
-    Aday eksikleri yalnızca bilgilendirme amaçlı döner.
+    Kullanılabilir yerel indeks varken (READY veya STALE) uygulama yazılabilir kalır.
+    Arka plan yeniden indeksleme veya aday güncelleme salt okunur kilidi koymaz.
     """
     candidates=cfg.get('_candidate_sources') or {}
     active_missing=[name for name in SOURCE_NAMES if not (sources or {}).get(name)]
@@ -1386,23 +1386,39 @@ def source_access_state(cfg, sources, engine):
             'origin':str(((sources or {}).get(name) or {}).get('origin') or ''),
             'usable':active,
         }
-    current=not active_missing and bool(engine.get('ready')) and not engine.get('building')
-    if engine.get('status')=='CORRUPT':
+    usable=bool(engine.get('usable'))
+    ready=bool(engine.get('ready'))
+    building=bool(engine.get('building'))
+    status=str(engine.get('status') or '')
+    notes=[]
+    if status=='CORRUPT':
+        current=False
         reason='Yerel veri bütünlüğü doğrulanamadı: '+str(engine.get('lastError') or 'İndeks yeniden hazırlanmalı.')
     elif active_missing:
+        current=False
         reason='Merkezi/yerel kaynak eksik: '+', '.join(active_missing)
-    elif not current and engine.get('building'):
-        reason='Kaynak indeksi güncelleniyor veya kaynaklarla eşleşmiyor.'
-    elif not current and engine.get('status')=='FAILED':
-        reason='Yerel indeks hazırlanamadı: '+str(engine.get('error') or engine.get('lastError') or 'Verileri Yenile ile tekrar deneyin.')
-    elif not current:
-        reason='Kaynak indeksi güncelleniyor veya kaynaklarla eşleşmiyor.'
+    elif not usable:
+        current=False
+        if building:
+            reason='Yerel indeks ilk kez hazırlanıyor. Tamamlanınca Verileri Yenile.'
+        elif status=='FAILED':
+            reason='Yerel indeks hazırlanamadı: '+str(engine.get('error') or engine.get('lastError') or 'Verileri Yenile ile tekrar deneyin.')
+        else:
+            reason='Yerel indeks henüz yok. Verileri Yenile ile oluşturun.'
     else:
+        # usable READY veya STALE — yerel veriyle çalışmaya devam.
+        current=True
         reason=''
-    network_note=('Merkezi kayıt kullanılıyor; ağ adayı eksik: '+', '.join(candidate_missing)) if (current and candidate_missing) else ''
+        if building:
+            notes.append('İndeks arka planda güncelleniyor; mevcut yerel veri kullanılıyor.')
+        elif not ready:
+            notes.append('Yerel indeks önceki kaynaklarla çalışıyor; yeni kaynak varsa onay bekleniyor olabilir.')
+    if current and candidate_missing:
+        notes.append('Merkezi kayıt kullanılıyor; ağ adayı eksik: '+', '.join(candidate_missing))
+    network_note=' '.join(notes)
     return {'current':current,'readOnly':not current,'missing':active_missing,
         'candidateMissing':candidate_missing,'perSource':per_source,'networkNote':network_note,
-        'localDataAvailable':bool(engine.get('usable')) or bool((sources or {}) and not active_missing),
+        'localDataAvailable':usable or bool((sources or {}) and not active_missing),
         'snapshotId':str(engine.get('buildId') or '')+'|'+str(engine.get('indexSourceDigest') or ''),
         'checkedAt':datetime.now().astimezone().isoformat(),'reason':reason}
 

@@ -89,6 +89,42 @@ class SourceAccessStateTests(unittest.TestCase):
         self.assertEqual(access['missing'], ['KESIFLER'])
         self.assertIn('Merkezi/yerel kaynak eksik', access['reason'])
 
+    def test_stale_usable_index_keeps_app_writable(self):
+        import server as srv
+
+        cfg = {'_candidate_sources': {name: {'files': [1]} for name in srv.SOURCE_NAMES}}
+        sources = {name: {'files': [{'path': 'x'}], 'origin': 'active'} for name in srv.SOURCE_NAMES}
+        engine = {'ready': False, 'building': False, 'usable': True, 'status': 'STALE',
+                  'buildId': 'B2', 'indexSourceDigest': 'old'}
+        access = srv.source_access_state(cfg, sources, engine)
+        self.assertTrue(access['current'])
+        self.assertFalse(access['readOnly'])
+        self.assertIn('önceki kaynaklarla', access.get('networkNote', ''))
+
+    def test_building_without_usable_index_is_readonly(self):
+        import server as srv
+
+        cfg = {'_candidate_sources': {}}
+        sources = {name: {'files': [{'path': 'x'}]} for name in srv.SOURCE_NAMES}
+        engine = {'ready': False, 'building': True, 'usable': False, 'status': 'REBUILDING'}
+        access = srv.source_access_state(cfg, sources, engine)
+        self.assertFalse(access['current'])
+        self.assertTrue(access['readOnly'])
+        self.assertIn('ilk kez hazırlanıyor', access['reason'])
+
+    def test_building_with_usable_index_stays_writable(self):
+        import server as srv
+
+        cfg = {'_candidate_sources': {}}
+        sources = {name: {'files': [{'path': 'x'}]} for name in srv.SOURCE_NAMES}
+        engine = {'ready': False, 'building': True, 'usable': True, 'status': 'REBUILDING',
+                  'buildId': 'B3', 'indexSourceDigest': 'd'}
+        access = srv.source_access_state(cfg, sources, engine)
+        self.assertTrue(access['current'])
+        self.assertFalse(access['readOnly'])
+        self.assertEqual(access['reason'], '')
+        self.assertIn('arka planda güncelleniyor', access.get('networkNote', ''))
+
 
 if __name__ == '__main__':
     unittest.main()
