@@ -219,7 +219,8 @@ function validateSource(src){
   if(src==='KESIFLER'){
     const sheets=Object.entries(b||{});if(!sheets.length)issues.push('KESIFLER: tanınmış CSV kaynağı bulunamadı.');
     for(const [sheet,r] of sheets){
-      for(const h of ['Depo Kodu','Malzeme Kodu','Teslim Edilen','Verilen Malzeme Toplamı','Teslim Edilen - Verilen Fark'])if(!hasHeader(r,[h]))issues.push(`KESIFLER/${sheet}: '${h}' başlığı bulunamadı.`);
+      for(const names of [['Depo Kodu'],['Malzeme Kodu'],['Keşif','Teslim Edilen','İhale Keşfi']])if(!hasHeader(r,names))issues.push(`KESIFLER/${sheet}: '${names[0]}' başlığı bulunamadı.`);
+      for(const h of ['Grup No','Grup Tanımı','Yüklenici','Proje'])if(!hasHeader(r,[h]))issues.push(`KESIFLER/${sheet}: '${h}' başlığı önerilir.`);
     }
   }
   return issues;

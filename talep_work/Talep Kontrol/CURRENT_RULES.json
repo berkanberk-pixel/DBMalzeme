@@ -53,10 +53,24 @@
       "BAKIM": "BAKIM içerikli CSV",
       "LED": "LED içerikli CSV"
     },
-    "planned_field": "Teslim Edilen",
+    "canonical_headers": [
+      "Depo Kodu",
+      "Grup No",
+      "Grup Tanımı",
+      "Yüklenici",
+      "Proje",
+      "Malzeme Kodu",
+      "Keşif"
+    ],
+    "planned_field": "Keşif",
+    "planned_field_aliases": [
+      "Keşif",
+      "Teslim Edilen",
+      "İhale Keşfi"
+    ],
     "previously_delivered_field": "Verilen Malzeme Toplamı",
     "remaining_field": "Teslim Edilen - Verilen Fark",
-    "formula": "Kalan Kesif = Teslim Edilen - Verilen Malzeme Toplami",
+    "formula": "Kalan Keşif = Keşif - (MB51 fiili + ara taahhüt); kaynakta Verilen/Kalan yoksa Keşif başlangıç bakiyesidir.",
     "decision": "Yeni talep doğrudan kalan keşif ile karşılaştırılır.",
     "mb52_stock_subtracted": false,
     "mb51_used": false,
@@ -68,7 +82,7 @@
     "manual_project_distribution": true,
     "distribution_total_must_equal_requested_quantity": true,
     "project_definitions_source": "TANIMLAR SITE_PROJELER CSV + KESIFLER TESİS CSV",
-    "project_remaining_rule": "Yeni dağıtım, proje bazındaki Teslim Edilen - Verilen Malzeme Toplamı kalanını aşamaz."
+    "project_remaining_rule": "Yeni dağıtım, proje bazındaki kalan keşfi (Keşif − fiili/ara düşüm) aşamaz."
   },
   "source_stock": {
     "main_depot_stock_check_in_app": false,
@@ -152,7 +166,7 @@
   "uiRevision": "Tam ekran çalışma düzeni + içerikten otomatik CSV kaynak tanıma",
   "guaranteeCoverageFormula": "(Rezervasyon Parasal Etkisi + Mevcut Depo Stok Değeri) / Toplam Teminat * 100",
   "stockValuationRule": "MB52 hedef üretim yeri/depo stok miktarı x aynı üretim yerindeki malzeme birim fiyatı",
-  "tesisDiscoveryRule": "TESİS: seçilen proje için Teslim Edilen = planlanan keşif, Verilen Malzeme Toplamı = önceki teslim, Teslim Edilen - Verilen Fark = mevcut kalan keşif; yeni proje dağıtımı mevcut kalan keşfi aşamaz. MB52 stok miktarı keşiften düşülmez.",
+  "tesisDiscoveryRule": "TESİS: kurumsal keşif sütunları Depo Kodu;Grup No;Grup Tanımı;Yüklenici;Proje;Malzeme Kodu;Keşif. Keşif = planlanan miktar; kaynakta Verilen/Kalan yoksa başlangıç kalanı = Keşif. Fiili düşüm MB51 ve ara/kesin kayıtlarla yapılır. MB52 stok miktarı keşiften düşülmez.",
   "reservationSearch": {
     "enabled": true,
     "searchFields": [

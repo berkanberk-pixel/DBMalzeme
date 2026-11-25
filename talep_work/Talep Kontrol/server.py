@@ -310,7 +310,8 @@ FIELD_ALIASES={
 }
 
 SIGNATURES=[
-    {'source':'KESIFLER','role':'KESIF_DATA','required':['depot_code','material_code_exact','planned'],'optional':['given','remaining','project_name','work_type','company','group_no','group_desc']},
+    # Kurumsal keşif: Depo Kodu;Grup No;Grup Tanımı;Yüklenici;Proje;Malzeme Kodu;Keşif
+    {'source':'KESIFLER','role':'KESIF_DATA','required':['depot_code','material_code_exact','planned'],'optional':['project_name','company','group_no','group_desc','given','remaining','work_type']},
     {'source':'ZMM048','role':'ZMM048','required':['reservation','material','source_uy','source_dy','target_uy','target_dy'],'optional':['qty','uom']},
     {'source':'MB52','role':'MB52','required':['material','plant','storage','unrestricted'],'optional':['total_value','unrestricted_value','material_desc','uom','depot_type']},
     {'source':'ZMM098','role':'ZMM098','required':['plant','storage','guarantee_main'],'optional':['guarantee_cash','guarantee_manual']},
@@ -1721,7 +1722,7 @@ def _data_prep_convert_one(path: Path, sheet_name: str, source_key: str, out_pat
     signature=_data_prep_signature(source_key)
     if best['rowIndex']<0:
         if signature['role']=='KESIF_DATA':
-            required='Depo Kodu veya Depo yeri, Malzeme Kodu ve Teslim Edilen, Keşif veya İhale Keşfi'
+            required='Depo Kodu, Malzeme Kodu, Keşif (veya Teslim Edilen / İhale Keşfi); önerilen: Grup No, Grup Tanımı, Yüklenici, Proje'
         else:
             required=', '.join('/'.join(sorted(FIELD_ALIASES[group])) for group in signature['required'])
         raise ValueError(f'{path.name} / {sheet_name}: {cfg["label"]} için zorunlu başlıklar eşleşmedi. Beklenen alanlar: {required}.')
@@ -3698,7 +3699,10 @@ def _normalized_rows(source):
                 elif source=='KESIFLER':
                     role=str(f.get('role') or '')
                     code=role if role in ('T','K','B','L') else _work_code(_cell(row,indexes['work_type']))
-                    d={'workCode':code,'sheet':str(f.get('sheet') or role or 'KESIFLER'),'rowNo':i+1,'dy':str(_cell(row,indexes['depot_code'])).strip() or str(_cell(row,indexes['storage'])).strip(),'groupNo':str(_cell(row,indexes['group_no'])).strip(),'groupDesc':str(_cell(row,indexes['group_desc'])).strip(),'contractor':str(_cell(row,indexes['company'])).strip(),'project':str(_cell(row,indexes['project_name'])).strip(),'materialCode':str(_cell(row,indexes['material'])).strip(),'materialDesc':str(_cell(row,indexes['material_desc'])).strip(),'uom':str(_cell(row,indexes['uom'])).strip(),'planned':_number(_cell(row,indexes['planned'])),'given':_number(_cell(row,indexes['given'])),'remaining':_number(_cell(row,indexes['remaining']))}
+                    planned=_number(_cell(row,indexes['planned']))
+                    given=_number(_cell(row,indexes['given'])) if indexes.get('given',-1)>=0 else 0.0
+                    remaining=planned-given if indexes.get('remaining',-1)<0 else _number(_cell(row,indexes['remaining']))
+                    d={'workCode':code,'sheet':str(f.get('sheet') or role or 'KESIFLER'),'rowNo':i+1,'dy':str(_cell(row,indexes['depot_code'])).strip() or str(_cell(row,indexes['storage'])).strip(),'groupNo':str(_cell(row,indexes['group_no'])).strip(),'groupDesc':str(_cell(row,indexes['group_desc'])).strip(),'contractor':str(_cell(row,indexes['company'])).strip(),'project':str(_cell(row,indexes['project_name'])).strip(),'materialCode':str(_cell(row,indexes['material'])).strip(),'materialDesc':str(_cell(row,indexes['material_desc'])).strip(),'uom':str(_cell(row,indexes['uom'])).strip(),'planned':planned,'given':given,'remaining':remaining}
                     if d['materialCode']:out.append(d)
     # Arama metnini bir kez üret; her tuş vuruşunda tekrar normalize etme.
     if source=='MB51':

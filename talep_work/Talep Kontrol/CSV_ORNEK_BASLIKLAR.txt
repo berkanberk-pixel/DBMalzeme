@@ -24,8 +24,9 @@ Proje_ID;Proje_Adi;Depo_Yeri;UY;Is_Turu;Aktif
 TANIMLAR / Malzemeler
 Malzeme_Kodu;Malzeme_Tanimi;Birim
 
-KESIFLER / Ortak zorunlu alanlar
-Depo Kodu;Malzeme Kodu;Teslim Edilen;Verilen Malzeme Toplamı;Teslim Edilen - Verilen Fark
+KESIFLER / Kurumsal sütun başlıkları (zorunlu sıra)
+Depo Kodu;Grup No;Grup Tanımı;Yüklenici;Proje;Malzeme Kodu;Keşif
 
-TESİS keşfinde ayrıca Proje / Proje Adı alanı bulunmalıdır.
-KET / BAKIM / LED için İş Türü alanı önerilir. Yoksa Depo Kodu, TANIMLAR depo iş türü üzerinden belirlenir.
+Keşif miktarı "Keşif" sütunundan okunur. Eski "Teslim Edilen" / "İhale Keşfi" başlıkları da kabul edilir.
+Kaynakta "Verilen Malzeme Toplamı" veya kalan sütunu yoksa verilen=0, kalan=Keşif kabul edilir.
+İş türü (TESİS/KET/BAKIM/LED) dosya içeriği, Grup Tanımı/Proje metni veya TANIMLAR depo iş türünden çıkarılır.

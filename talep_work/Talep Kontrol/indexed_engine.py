@@ -417,6 +417,8 @@ def _insert_z048(c,f):
     return count
 
 def _insert_kesif(c,f):
+    # Kurumsal keşif şeması: Depo Kodu;Grup No;Grup Tanımı;Yüklenici;Proje;Malzeme Kodu;Keşif
+    # Verilen / kalan sütunları yoksa: given=0, remaining=Keşif.
     hdr=None;ix={};buf=[];count=0;role=str(f.get('role') or '').upper();sheet=str(f.get('sheet') or role or 'KESIFLER')
     for kind,row,rowno in _iter_rows(f):
         if kind=='__HEADER__':hdr=row;ix={g:idx(hdr,g) for g in ['depot_code','storage','group_no','group_desc','company','project','material','material_desc','uom','planned','given','remaining','work_type']};continue
@@ -424,7 +426,13 @@ def _insert_kesif(c,f):
         if not mc:continue
         code=role if role in ('T','K','B','L') else work_code(cell(row,ix['work_type']))
         if code not in ('T','K','B','L'):continue
-        project=str(cell(row,ix['project'])).strip();planned=number(cell(row,ix['planned']));given=number(cell(row,ix['given']));reported=number(cell(row,ix['remaining']));remaining=planned-given;mismatch=1 if abs(remaining-reported)>0.001 else 0
+        project=str(cell(row,ix['project'])).strip();planned=number(cell(row,ix['planned']))
+        given=number(cell(row,ix['given'])) if ix.get('given',-1)>=0 else 0.0
+        remaining=planned-given
+        if ix.get('remaining',-1)>=0:
+            reported=number(cell(row,ix['remaining']));mismatch=1 if abs(remaining-reported)>0.001 else 0
+        else:
+            reported=remaining;mismatch=0
         group_no=str(cell(row,ix['group_no'])).strip();group_desc=str(cell(row,ix['group_desc'])).strip();contractor=str(cell(row,ix['company'])).strip();md=str(cell(row,ix['material_desc'])).strip();uom=str(cell(row,ix['uom'])).strip();search=norm(' '.join([dy,group_no,group_desc,contractor,project,mc,md]))
         buf.append((code,sheet,rowno,dy,group_no,group_desc,contractor,project,norm(project),mc,md,uom,planned,given,remaining,reported,mismatch,search));count+=1
         if len(buf)>=5000:c.executemany('INSERT INTO kesif(work_code,sheet,row_no,dy,group_no,group_desc,contractor,project,project_norm,material_code,material_desc,uom,planned,given,remaining,reported_remaining,mismatch,search_text) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',buf);buf=[]
