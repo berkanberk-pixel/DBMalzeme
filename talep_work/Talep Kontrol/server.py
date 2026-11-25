@@ -291,7 +291,7 @@ FIELD_ALIASES={
     'company':_aset('Firma Adı','Firma_Adi','Yüklenici'),
     'contract':_aset('Sözleşme Adı','Sozlesme_Adi'),
     'active':_aset('Aktif'),
-    'planned':_aset('Teslim Edilen','Keşif','İhale Keşfi'),
+    'planned':_aset('Teslim Edilen','Keşif','Kesif','Keşif Miktarı','Kesif Miktari','İhale Keşfi','Ihale Kesfi','Planlanan','Planlanan Miktar'),
     'given':_aset('Verilen Malzeme Toplamı'),
     'remaining':_aset('Teslim Edilen - Verilen Fark'),
     'group_no':_aset('Grup No'),
@@ -418,26 +418,82 @@ def _best_header(rows):
     return best
 
 
-def _scan_csv(path: Path, origin: str, min_conf: float):
+def _header_set_from_row(row):
+    return {_norm_header(v) for v in (row or []) if str(v or '').strip()}
+
+
+def _missing_required_groups(header_set, sig):
+    return [g for g in sig.get('required',[]) if not _has_group(header_set,g)]
+
+
+def _expected_signatures(expected):
+    exp=str(expected or '').upper()
+    if not exp:
+        return list(SIGNATURES)
+    return [s for s in SIGNATURES if s['source']==exp] or list(SIGNATURES)
+
+
+def _best_header_for_expected(rows, expected=None):
+    """Genel tarama; expected verilirse yalnız o kaynak imzaları denenir."""
+    expected_sigs=_expected_signatures(expected)
+    best=None
+    for idx,row in enumerate(rows[:40]):
+        headers=_header_set_from_row(row)
+        if len(headers)<2:continue
+        scored=[]
+        for sig in expected_sigs:
+            score=_signature_score(headers,sig)
+            if score:
+                scored.append((len(sig.get('required',[])),score,sig))
+        if not scored:continue
+        scored.sort(key=lambda x:(x[0],x[1]),reverse=True)
+        specificity,score,sig=scored[0]
+        second=0.0
+        for sp,sc,other in scored[1:]:
+            if sp!=specificity:break
+            if other['source']!=sig['source']:
+                second=sc;break
+        cand={'header_row':idx,'headers':headers,'score':score,'second':second,'specificity':specificity,'signature':sig,'raw':row}
+        if best is None or cand['score']>best['score'] or (cand['score']==best['score'] and idx<best['header_row']):
+            best=cand
+    return best
+
+
+def _scan_csv(path: Path, origin: str, min_conf: float, expected=None):
     try:
         text,encoding=_decode_sample(path)
         delimiter=_detect_delimiter(text)
         rows=_sample_rows(text,delimiter)
-        best=_best_header(rows)
+        best=_best_header_for_expected(rows,expected) if expected else _best_header(rows)
         if not best:
             for alternative in (';',',','\t','|'):
                 if alternative==delimiter:continue
                 candidate_rows=_sample_rows(text,alternative)
-                candidate=_best_header(candidate_rows)
+                candidate=_best_header_for_expected(candidate_rows,expected) if expected else _best_header(candidate_rows)
                 if candidate:
                     delimiter,rows,best=alternative,candidate_rows,candidate
                     break
         if not best:
+            # Manuel seçimde hangi zorunlu alanların eksik olduğunu açıkça söyle.
+            probe_row=None
+            for row in rows[:40]:
+                if sum(1 for v in row if str(v or '').strip())>=2:
+                    probe_row=row;break
+            if expected and probe_row is not None:
+                header_set=_header_set_from_row(probe_row)
+                for sig in _expected_signatures(expected):
+                    missing=_missing_required_groups(header_set,sig)
+                    if missing:
+                        labels={'depot_code':'Depo Kodu','material_code_exact':'Malzeme Kodu','planned':'Keşif'}
+                        need=', '.join(labels.get(g,g) for g in missing)
+                        found=', '.join(str(v).strip() for v in probe_row if str(v or '').strip())
+                        return {'path':path,'origin':origin,'classified':False,
+                                'reason':f'Tanımlayıcı sütun başlığı bulunamadı. Eksik: {need}. Dosyadaki başlıklar: {found}'}
             return {'path':path,'origin':origin,'classified':False,'reason':'Tanımlayıcı sütun başlığı bulunamadı.'}
         score=float(best['score']); second=float(best['second'])
         if score<min_conf:
             return {'path':path,'origin':origin,'classified':False,'reason':f'Eşleşme güveni düşük (%{round(score*100)}).'}
-        if second and score-second<0.05:
+        if (not expected) and second and score-second<0.05:
             return {'path':path,'origin':origin,'classified':False,'reason':'Birden fazla kaynak yapısına benzer bulundu.'}
         st=path.stat();sig=best['signature']
         return {
@@ -538,7 +594,7 @@ def _source_scan_candidate(path, origin, min_conf, expected=None):
 @lru_cache(maxsize=512)
 def _scan_source_revision(path, revision, origin, min_conf, expected):
     if path.suffix.lower() == '.csv':
-        return [_scan_csv(path, origin, min_conf)]
+        return [_scan_csv(path, origin, min_conf, expected)]
     return _excel_scan(path, origin, min_conf, expected)
 
 def _work_code(value):
@@ -631,6 +687,12 @@ def _infer_kesif_role(meta,depot_work):
         total=sum(counts.values());code,n=counts.most_common(1)[0]
         if len(counts)==1 or n/max(1,total)>=0.70:return code
         return 'MIXED'
+    # İçerikten tür çıkmazsa dosya adından (Tesis_Verileri / KET_Verileri …) tahmin et.
+    try:
+        stem=_kesif_role_from_text(Path(meta.get('path') or '').stem)
+        if stem:return stem
+    except Exception:
+        pass
     return 'UNKNOWN'
 
 

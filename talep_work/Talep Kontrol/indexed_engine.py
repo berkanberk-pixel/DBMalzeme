@@ -57,7 +57,7 @@ ALIASES={
  'group_desc':['Grup Tanımı'],
  'company':['Yüklenici','Firma Adı','Firma_Adi'],
  'project':['Proje','Proje Adı','Proje_Adi'],
- 'planned':['Teslim Edilen','Keşif','İhale Keşfi'],
+ 'planned':['Teslim Edilen','Keşif','Kesif','Keşif Miktarı','Kesif Miktari','İhale Keşfi','Ihale Kesfi','Planlanan','Planlanan Miktar'],
  'given':['Verilen Malzeme Toplamı'],
  'remaining':['Teslim Edilen - Verilen Fark'],
  'source_uy':['TESLİM EDEN ÜY','Kaynak ÜY'],

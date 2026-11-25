@@ -20,12 +20,37 @@ CANON = ['Depo Kodu', 'Grup No', 'Grup Tanımı', 'Yüklenici', 'Proje', 'Malzem
 
 class KesifCanonicalHeaderTests(unittest.TestCase):
     def test_signature_accepts_canonical_headers(self):
-        headers = {_norm for _norm in (srv._norm_header(h) for h in CANON)}
-        # _signature_score expects set of normalized headers from _best_header path
         header_set = {srv._norm_header(h) for h in CANON}
         sig = next(s for s in srv.SIGNATURES if s['source'] == 'KESIFLER')
         score = srv._signature_score(header_set, sig)
         self.assertGreaterEqual(score, 0.72)
+
+    def test_tesis_verileri_manual_select_classifies_as_kesifler(self):
+        """Manuel TESIS seçimi expected=KESIFLER ile CSV'yi doğrulamalı."""
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'Tesis_Verileri.csv'
+            with path.open('w', encoding='utf-8-sig', newline='') as fh:
+                w = csv.writer(fh, delimiter=';')
+                w.writerow(CANON)
+                w.writerow(['Y201', 'SA-1', 'Tesis grubu', 'Firma', '2026 Tesis Proje', '5100109363', '10'])
+            srv._scan_source_revision.cache_clear()
+            scanned = srv._source_scan_candidate(path, 'external', 0.72, 'KESIFLER')
+            matches = [x for x in scanned if x.get('classified') and x.get('source') == 'KESIFLER']
+            self.assertEqual(len(matches), 1, scanned)
+            role = srv._infer_kesif_role(matches[0], {})
+            self.assertIn(role, ('T', 'UNKNOWN'))
+
+    def test_missing_planned_reports_kesif_column(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'Tesis_Verileri.csv'
+            with path.open('w', encoding='utf-8-sig', newline='') as fh:
+                w = csv.writer(fh, delimiter=';')
+                w.writerow(['Depo Kodu', 'Grup No', 'Grup Tanımı', 'Yüklenici', 'Proje', 'Malzeme Kodu'])
+                w.writerow(['Y201', 'SA-1', 'Grup', 'Firma', 'Proje', '5100109363'])
+            srv._scan_source_revision.cache_clear()
+            meta = srv._scan_csv(path, 'external', 0.72, 'KESIFLER')
+            self.assertFalse(meta.get('classified'))
+            self.assertIn('Keşif', meta.get('reason', ''))
 
     def test_insert_kesif_reads_only_kesif_qty(self):
         with tempfile.TemporaryDirectory() as td:
