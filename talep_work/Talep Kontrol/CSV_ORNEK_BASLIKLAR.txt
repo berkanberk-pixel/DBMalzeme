@@ -27,6 +27,6 @@ Malzeme_Kodu;Malzeme_Tanimi;Birim
 KESIFLER / Kurumsal sütun başlıkları (zorunlu sıra)
 Depo Kodu;Grup No;Grup Tanımı;Yüklenici;Proje;Malzeme Kodu;Keşif
 
-Keşif miktarı "Keşif" sütunundan okunur. Eski "Teslim Edilen" / "İhale Keşfi" başlıkları da kabul edilir.
-Kaynakta "Verilen Malzeme Toplamı" veya kalan sütunu yoksa verilen=0, kalan=Keşif kabul edilir.
+Keşif miktarı yalnız "Keşif" sütunundan okunur. Eski "Teslim Edilen" / "İhale Keşfi" başlıkları da Keşif olarak kabul edilir.
+Verilen / Kalan sütunları okunmaz. Fiili düşüm MB51 ve uygulama kayıtlarıyla hesaplanır.
 İş türü (TESİS/KET/BAKIM/LED) dosya içeriği, Grup Tanımı/Proje metni veya TANIMLAR depo iş türünden çıkarılır.

@@ -311,7 +311,8 @@ FIELD_ALIASES={
 
 SIGNATURES=[
     # Kurumsal keşif: Depo Kodu;Grup No;Grup Tanımı;Yüklenici;Proje;Malzeme Kodu;Keşif
-    {'source':'KESIFLER','role':'KESIF_DATA','required':['depot_code','material_code_exact','planned'],'optional':['project_name','company','group_no','group_desc','given','remaining','work_type']},
+    # Verilen/Kalan sütunları okunmaz; miktar yalnız Keşif alanındadır.
+    {'source':'KESIFLER','role':'KESIF_DATA','required':['depot_code','material_code_exact','planned'],'optional':['project_name','company','group_no','group_desc','work_type']},
     {'source':'ZMM048','role':'ZMM048','required':['reservation','material','source_uy','source_dy','target_uy','target_dy'],'optional':['qty','uom']},
     {'source':'MB52','role':'MB52','required':['material','plant','storage','unrestricted'],'optional':['total_value','unrestricted_value','material_desc','uom','depot_type']},
     {'source':'ZMM098','role':'ZMM098','required':['plant','storage','guarantee_main'],'optional':['guarantee_cash','guarantee_manual']},
@@ -3603,7 +3604,7 @@ def _kesif_context_rows(dy, materials):
                 if i<start:continue
                 if headers is None:
                     headers=row
-                    idx={g:_idx_for(headers,g) for g in ('depot_code','storage','material','project_name','planned','given','group_no','group_desc','company','work_type')}
+                    idx={g:_idx_for(headers,g) for g in ('depot_code','storage','material','project_name','planned','group_no','group_desc','company','work_type')}
                     continue
                 if not any(str(v or '').strip() for v in row):continue
                 row_dy=str(_cell(row,idx.get('depot_code',-1)) or _cell(row,idx.get('storage',-1))).strip()
@@ -3616,14 +3617,14 @@ def _kesif_context_rows(dy, materials):
                 k=(row_code,row_dy,project,mat) if row_code=='T' else (row_code,row_dy,'',mat)
                 a=agg.setdefault(k,{'workCode':row_code,'dy':row_dy,'projectName':project,'materialCode':mat,'planned':0.0,'given':0.0,'rowCount':0,'groupNo':'','groupDesc':'','contractor':''})
                 a['planned']+=_number(_cell(row,idx.get('planned',-1)))
-                a['given']+=_number(_cell(row,idx.get('given',-1)))
                 a['rowCount']+=1
                 if not a['groupNo']:a['groupNo']=str(_cell(row,idx.get('group_no',-1))).strip()
                 if not a['groupDesc']:a['groupDesc']=str(_cell(row,idx.get('group_desc',-1))).strip()
                 if not a['contractor']:a['contractor']=str(_cell(row,idx.get('company',-1))).strip()
     rows=[]
     for a in agg.values():
-        a['remaining']=a['planned']-a['given']
+        a['given']=0.0
+        a['remaining']=a['planned']
         rows.append(a)
     rows.sort(key=lambda x:(x['workCode'],x['dy'],x['projectName'].casefold(),x['materialCode']))
     with _KESIF_CONTEXT_LOCK:
@@ -3700,9 +3701,7 @@ def _normalized_rows(source):
                     role=str(f.get('role') or '')
                     code=role if role in ('T','K','B','L') else _work_code(_cell(row,indexes['work_type']))
                     planned=_number(_cell(row,indexes['planned']))
-                    given=_number(_cell(row,indexes['given'])) if indexes.get('given',-1)>=0 else 0.0
-                    remaining=planned-given if indexes.get('remaining',-1)<0 else _number(_cell(row,indexes['remaining']))
-                    d={'workCode':code,'sheet':str(f.get('sheet') or role or 'KESIFLER'),'rowNo':i+1,'dy':str(_cell(row,indexes['depot_code'])).strip() or str(_cell(row,indexes['storage'])).strip(),'groupNo':str(_cell(row,indexes['group_no'])).strip(),'groupDesc':str(_cell(row,indexes['group_desc'])).strip(),'contractor':str(_cell(row,indexes['company'])).strip(),'project':str(_cell(row,indexes['project_name'])).strip(),'materialCode':str(_cell(row,indexes['material'])).strip(),'materialDesc':str(_cell(row,indexes['material_desc'])).strip(),'uom':str(_cell(row,indexes['uom'])).strip(),'planned':planned,'given':given,'remaining':remaining}
+                    d={'workCode':code,'sheet':str(f.get('sheet') or role or 'KESIFLER'),'rowNo':i+1,'dy':str(_cell(row,indexes['depot_code'])).strip() or str(_cell(row,indexes['storage'])).strip(),'groupNo':str(_cell(row,indexes['group_no'])).strip(),'groupDesc':str(_cell(row,indexes['group_desc'])).strip(),'contractor':str(_cell(row,indexes['company'])).strip(),'project':str(_cell(row,indexes['project_name'])).strip(),'materialCode':str(_cell(row,indexes['material'])).strip(),'materialDesc':str(_cell(row,indexes['material_desc'])).strip(),'uom':str(_cell(row,indexes['uom'])).strip(),'planned':planned,'given':0.0,'remaining':planned}
                     if d['materialCode']:out.append(d)
     # Arama metnini bir kez üret; her tuş vuruşunda tekrar normalize etme.
     if source=='MB51':

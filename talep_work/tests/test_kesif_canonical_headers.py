@@ -27,13 +27,13 @@ class KesifCanonicalHeaderTests(unittest.TestCase):
         score = srv._signature_score(header_set, sig)
         self.assertGreaterEqual(score, 0.72)
 
-    def test_insert_kesif_without_given_remaining(self):
+    def test_insert_kesif_reads_only_kesif_qty(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / 'kesif.csv'
             with path.open('w', encoding='utf-8-sig', newline='') as fh:
                 w = csv.writer(fh, delimiter=';')
-                w.writerow(CANON)
-                w.writerow(['D1', 'G1', 'Grup', 'Firma A', 'Proje X', 'M100', '12,5'])
+                w.writerow(CANON + ['Verilen Malzeme Toplamı', 'Teslim Edilen - Verilen Fark'])
+                w.writerow(['D1', 'G1', 'Grup', 'Firma A', 'Proje X', 'M100', '12,5', '999', '1'])
             import sqlite3
             c = sqlite3.connect(':memory:')
             ie._create_schema(c)
@@ -44,7 +44,7 @@ class KesifCanonicalHeaderTests(unittest.TestCase):
             self.assertEqual(n, 1)
             row = c.execute('SELECT planned, given, remaining, mismatch, contractor, project, group_no FROM kesif').fetchone()
             self.assertAlmostEqual(row[0], 12.5)
-            self.assertAlmostEqual(row[1], 0.0)
+            self.assertAlmostEqual(row[1], 0.0)  # Verilen okunmaz
             self.assertAlmostEqual(row[2], 12.5)
             self.assertEqual(row[3], 0)
             self.assertEqual(row[4], 'Firma A')

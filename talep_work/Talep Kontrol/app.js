@@ -430,9 +430,9 @@ function normalizeKesifModern(){
     const r=x.r,code=inferKesifCode(r,x.sheet),dy=String(r['Depo Kodu']??'').trim(),mat=String(r['Malzeme Kodu']??'').trim();if(!code||!dy||!mat)continue;
     const projectName=String(r['Proje']??r['Proje Adı']??r['Proje_Adi']??'').trim();
     const dep=(state.data.depots||[]).find(d=>String(d.dy)===dy)||{},uy=String(dep.uy||'').trim();
-    const planned=num(r['Teslim Edilen']),given=num(r['Verilen Malzeme Toplamı']),remaining=num(r['Teslim Edilen - Verilen Fark']);
+    const planned=num(r['Keşif']??r['Teslim Edilen']??r['İhale Keşfi']),given=0,remaining=planned;
     let projectId='';if(code==='T'){const p=(state.data.projects||[]).find(v=>String(v.dy)===dy&&norm(v.projectName)===norm(projectName));projectId=p?.projectId||stableKesifProjectId(dy,projectName)}
-    const item={uy,dy,projectId,projectName,workType:code,materialCode:mat,planned,given,remaining,metric:planned,metricName:'Teslim Edilen',sheet:x.sheet,sourceModel:'CSV_DELIVERY_BALANCE',sourceRow:x.rowNo,groupNo:String(r['Grup No']??'').trim(),groupDesc:String(r['Grup Tanımı']??'').trim(),contractor:String(r['Yüklenici']??r['Firma Adı']??'').trim()};
+    const item={uy,dy,projectId,projectName,workType:code,materialCode:mat,planned,given,remaining,metric:planned,metricName:'Keşif',sheet:x.sheet,sourceModel:'CSV_KESIF_QTY',sourceRow:x.rowNo,groupNo:String(r['Grup No']??'').trim(),groupDesc:String(r['Grup Tanımı']??'').trim(),contractor:String(r['Yüklenici']??r['Firma Adı']??'').trim()};
     if(code==='T')projectMap.set(key(dy,norm(projectName),mat),item);else depotMap.set(key(code,dy,mat),item);
   }
   return [...projectMap.values(),...depotMap.values()];
@@ -475,7 +475,7 @@ async function ensureKesifContext(dy,materialCodes){
       else{const dep=(state.data.depots||[]).find(d=>String(d.dy)===dy)||{};p={projectId:stableKesifProjectId(dy,projectName),projectName,uy:String(dep.uy||'').trim(),dy,workType:'TESİS',active:'EVET',source:'KESIFLER',sourceKesif:'KESIFLER'};state.data.projects.push(p);existingProjects.set(pk,p);projectId=p.projectId}
     }
     const dep=(state.data.depots||[]).find(d=>String(d.dy)===dy)||{};
-    state.data.kesif.push({uy:String(dep.uy||'').trim(),dy,projectId,projectName,workType:code,materialCode:String(r.materialCode||'').trim(),planned:num(r.planned),given:num(r.given),remaining:num(r.remaining),metric:num(r.planned),metricName:'Teslim Edilen',sheet:code==='T'?'Tesis_Verileri':code==='K'?'KET_Verileri':code==='B'?'BAKIM_Verileri':'LED_Verileri',sourceModel:'CSV_DELIVERY_BALANCE_LAZY',sourceRow:0,groupNo:String(r.groupNo||'').trim(),groupDesc:String(r.groupDesc||'').trim(),contractor:String(r.contractor||'').trim()});
+    const planned=num(r.planned);state.data.kesif.push({uy:String(dep.uy||'').trim(),dy,projectId,projectName,workType:code,materialCode:String(r.materialCode||'').trim(),planned,given:0,remaining:planned,metric:planned,metricName:'Keşif',sheet:code==='T'?'Tesis_Verileri':code==='K'?'KET_Verileri':code==='B'?'BAKIM_Verileri':'LED_Verileri',sourceModel:'CSV_KESIF_QTY_LAZY',sourceRow:0,groupNo:String(r.groupNo||'').trim(),groupDesc:String(r.groupDesc||'').trim(),contractor:String(r.contractor||'').trim()});
   }
   kesifContextLoaded.add(cacheKey);buildIndexes();
 }
@@ -1773,7 +1773,7 @@ function discoveryErrorDetails(ctx){
       }).join(''):`<div class="error-explanation">Bu malzeme için henüz proje seçimi yapılmadı.</div>`;
       return `<div class="error-detail-row error-detail-bad">
         <div class="error-detail-title"><strong>${esc(m.materialCode)}</strong><span>${esc(m.materialDesc||'')}</span>${badge('TESİS keşif kontrolü','bad')}</div>
-        <div class="tesis-rule-note"><b>Keşif = Teslim Edilen</b>, <b>Daha Önce Verilen = Verilen Malzeme Toplamı</b>, <b>Kalan Keşif = Teslim Edilen − Verilen</b>. Yeni talep doğrudan kalan keşifle karşılaştırılır.</div>
+        <div class="tesis-rule-note"><b>Kaynak miktarı = Keşif</b>. Fiili düşüm MB51 ve ara/kesin kayıtlarla hesaplanır; kaynakta Verilen/Kalan sütunu okunmaz.</div>
         ${projectLines}
         <div class="error-compare"><span>${ctx.mode==='manual'?'Manuel Talep':'Rezervasyon Talebi'}: <b>${fmtNum(request)} ${esc(uom)}</b></span><span>Projelere Dağıtılan: <b>${fmtNum(kc.distributed||0)} ${esc(uom)}</b></span></div>
         ${kc.issues.length?`<div class="error-explanation"><b>Neden:</b> ${esc(kc.issues.join(' · '))}</div>`:''}
@@ -2661,8 +2661,8 @@ async function exportKesifFilteredCsv(){
   const rows=[...(first.rows||[])],pages=Number(first.pages||1);
   for(let i=2;i<=pages;i++){const part=await fetchFastGrid('kesif',{...base,page:i,pageSize:size});rows.push(...(part.rows||[]))}
   if(rows.length!==total)throw Error('Veri yenilendi veya rapor bütünlüğü bozuldu; tekrar deneyin.');
-  const head=['İş Türü','Kaynak Sayfa','CSV Satırı','Depo Kodu','Grup No','Grup Tanımı','Yüklenici','Proje','Malzeme Kodu','Malzeme Tanımı','Birim','Teslim Edilen','Verilen Malzeme Toplamı','Teslim Edilen - Verilen Fark','Hesap Tutarsız','Mükerrer'];
-  const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';const lines=[head.map(q).join(';'),...rows.map(r=>[def.label,r.sheet,r.rowNo,r.dy,r.groupNo,r.groupDesc,r.contractor,r.project,r.materialCode,r.materialDesc,r.uom,r.planned,r.given,r.remaining,r.mismatch?'EVET':'HAYIR',r.duplicate?'EVET':'HAYIR'].map(q).join(';'))];
+  const head=['İş Türü','Kaynak Sayfa','CSV Satırı','Depo Kodu','Grup No','Grup Tanımı','Yüklenici','Proje','Malzeme Kodu','Malzeme Tanımı','Birim','Keşif','Mükerrer'];
+  const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';const lines=[head.map(q).join(';'),...rows.map(r=>[def.label,r.sheet,r.rowNo,r.dy,r.groupNo,r.groupDesc,r.contractor,r.project,r.materialCode,r.materialDesc,r.uom,r.planned,r.duplicate?'EVET':'HAYIR'].map(q).join(';'))];
   const blob=new Blob(['\ufeff'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`KESIF_KONTROL_${def.code}_${new Date().toISOString().slice(0,10)}.csv`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);toast(`${rows.length} filtreli keşif kaydı CSV olarak aktarıldı.`)
  }catch(e){toast('Keşif CSV aktarım hatası: '+e.message)}
 }

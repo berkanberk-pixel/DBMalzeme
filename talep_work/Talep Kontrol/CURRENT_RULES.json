@@ -68,10 +68,9 @@
       "Teslim Edilen",
       "İhale Keşfi"
     ],
-    "previously_delivered_field": "Verilen Malzeme Toplamı",
-    "remaining_field": "Teslim Edilen - Verilen Fark",
-    "formula": "Kalan Keşif = Keşif - (MB51 fiili + ara taahhüt); kaynakta Verilen/Kalan yoksa Keşif başlangıç bakiyesidir.",
-    "decision": "Yeni talep doğrudan kalan keşif ile karşılaştırılır.",
+    "source_reads_given_remaining": false,
+    "formula": "Kaynak yalnız Keşif miktarını verir. Kalan = Keşif − (MB51 fiili + ara/kesin taahhüt).",
+    "decision": "Yeni talep hesaplanan kalan keşif ile karşılaştırılır.",
     "mb52_stock_subtracted": false,
     "mb51_used": false,
     "duplicate_depot_material_rule": "KET/BAKIM/LED aynı Depo+Malzeme satırları toplanır; pozitif ve negatif kalanlar mahsup edilir.",
@@ -166,7 +165,7 @@
   "uiRevision": "Tam ekran çalışma düzeni + içerikten otomatik CSV kaynak tanıma",
   "guaranteeCoverageFormula": "(Rezervasyon Parasal Etkisi + Mevcut Depo Stok Değeri) / Toplam Teminat * 100",
   "stockValuationRule": "MB52 hedef üretim yeri/depo stok miktarı x aynı üretim yerindeki malzeme birim fiyatı",
-  "tesisDiscoveryRule": "TESİS: kurumsal keşif sütunları Depo Kodu;Grup No;Grup Tanımı;Yüklenici;Proje;Malzeme Kodu;Keşif. Keşif = planlanan miktar; kaynakta Verilen/Kalan yoksa başlangıç kalanı = Keşif. Fiili düşüm MB51 ve ara/kesin kayıtlarla yapılır. MB52 stok miktarı keşiften düşülmez.",
+  "tesisDiscoveryRule": "TESİS: kurumsal keşif sütunları Depo Kodu;Grup No;Grup Tanımı;Yüklenici;Proje;Malzeme Kodu;Keşif. Kaynak yalnız Keşif miktarını verir; Verilen/Kalan okunmaz. Fiili düşüm MB51 ve ara/kesin kayıtlarla yapılır. MB52 stok miktarı keşiften düşülmez.",
   "reservationSearch": {
     "enabled": true,
     "searchFields": [
