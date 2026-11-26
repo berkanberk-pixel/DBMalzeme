@@ -1,6 +1,6 @@
 Talep Kontrol — Tam dağıtım
 Ortak yayın klasörü
-\\10.55.2.238\paylasim\GM_Planlama_Tesis_Direktorlugu\MALZEME YÖNETİMİ MÜDÜRLÜĞÜ\3 - Müdürlük Ortak Alan\1-Ortak Döküman Alanı\8-Talep Kontrol\9-Uygulama
+\\cedas.com\paylasim\GM_Planlama_Tesis_Direktorlugu\MALZEME YÖNETİMİ MÜDÜRLÜĞÜ\3 - Müdürlük Ortak Alan\1-Ortak Döküman Alanı\8-Talep Kontrol\9-Uygulama
 
 YAYIN
 1. Mevcut Aktif\manifest.json dosyasının yedeğini alın.
@@ -56,6 +56,11 @@ TEMİNAT KURALI
 SAP rezervasyon numarası zorunludur. ZMM098 açık rezervasyonlar dahil tutarı kullanılır.
 Yönetim Paneli kapsam ekranı sadece keşif doğrulaması içindir.
 
+
+KAYNAK TARAMA
+Uygulama klasörü: ...\8-Talep Kontrol
+Üst ortak alan: ...\1-Ortak Döküman Alanı (2-MB51, 3-MB52, 5-ZMM98, 7-ZMM048)
+Çakışmada en güncel ve yüksek güvenli dosya seçilir; eşitlikte üst klasör önceliklidir.
 
 MERKEZİ KAYNAK KOPYASI
 İlk okunan kaynaklar Windows yazma izni varsa 0-Database\KAYNAK_VERILERI altına kaydedilir.

@@ -69,7 +69,7 @@ def role_allowed(config, role):
     return False
 
 
-PANEL_APPROVAL_POLICY = Path('\\\\10.55.2.238\\paylasim\\GM_Planlama_Tesis_Direktorlugu\\MALZEME YÖNETİMİ MÜDÜRLÜĞÜ\\3 - Müdürlük Ortak Alan\\1-Ortak Döküman Alanı\\8-Talep Kontrol\\9-Uygulama\\Panel-Yetkileri\\PANEL_YETKILERI.json')
+PANEL_APPROVAL_POLICY = Path('\\\\cedas.com\\paylasim\\GM_Planlama_Tesis_Direktorlugu\\MALZEME YÖNETİMİ MÜDÜRLÜĞÜ\\3 - Müdürlük Ortak Alan\\1-Ortak Döküman Alanı\\8-Talep Kontrol\\9-Uygulama\\Panel-Yetkileri\\PANEL_YETKILERI.json')
 
 
 def panel_approval_allowed(account):
@@ -97,7 +97,7 @@ def final_record_allowed_here(config):
         and config.get('enforce_shared_record_root') is True
         and os.environ.get('TALEP_TEST_MODE') != '1'
         and ntpath.normcase(str(config.get('shared_record_root') or ''))
-        == ntpath.normcase('\\\\10.55.2.238\\paylasim\\GM_Planlama_Tesis_Direktorlugu\\MALZEME YÖNETİMİ MÜDÜRLÜĞÜ\\3 - Müdürlük Ortak Alan\\1-Ortak Döküman Alanı\\8-Talep Kontrol\\0-Database')
+        == ntpath.normcase('\\\\cedas.com\\paylasim\\GM_Planlama_Tesis_Direktorlugu\\MALZEME YÖNETİMİ MÜDÜRLÜĞÜ\\3 - Müdürlük Ortak Alan\\1-Ortak Döküman Alanı\\8-Talep Kontrol\\0-Database')
         and panel_approval_allowed(windows_account())
     )
 

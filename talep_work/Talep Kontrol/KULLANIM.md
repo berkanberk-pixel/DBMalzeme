@@ -8,7 +8,12 @@ Klasörü yerel bilgisayarınıza çıkartın. `Talep Kontrol.vbs` dosyasına ç
 
 ## Veri kaynakları
 
-Yalnız yetkili `8-Talep Kontrol` ağ yolundaki `1-ZMM048`, `2-MB51`, `3-MB52`, `4-Keşifler` ve `5-Tanımlar` klasörleri okunur. Alt klasörler taranır. ZMM098, uygulamanın mevcut kaynak tanıma kurallarınca bulunabiliyorsa kullanılır; ayrı bir ZMM098 yolu uydurulmadı. `.csv`, `.xlsx`, `.xlsm` desteklenir; `.xls` ve `.xlsb` için Windows üzerinde Microsoft Excel gerekebilir.
+Ortak alan: `\\cedas.com\paylasim\...\1-Ortak Döküman Alanı`.
+
+- `8-Talep Kontrol` altı: `1-ZMM048`, `2-MB51`, `3-MB52`, `4-Keşifler`, `5-Tanımlar`, `6-ZMM098`
+- Üst klasör SAP kaynakları: `2-MB51`, `3-MB52`, `5-ZMM98`, `7-ZMM048`
+
+Aynı kaynak birden fazla yerde varsa tarih, güven skoru ve boyutla en güncel/sağlıklı dosya seçilir; eşitlikte üst klasör tercih edilir. `9-TestSAP`, `9-Uygulama` ve `0-Database` kaynak olarak okunmaz. `.csv`, `.xlsx`, `.xlsm` desteklenir; `.xls` / `.xlsb` için Excel gerekebilir.
 
 Yerel SQLite indeksi `%LOCALAPPDATA%\TalepKontrol\Index` altına yazılır. **Bu indeksi ortak ağa taşımayın.** İlk çalıştırmada uygun kaynak bulunursa indeks arka planda hazırlanır. Ağ kesikse doğrulanmamış veriyi kesin sonuç olarak göstermeyin. Veri değişikliklerinin etkinleşmesi hâlâ mevcut kaynak kabul akışına bağlıdır.
 

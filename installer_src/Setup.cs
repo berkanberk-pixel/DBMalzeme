@@ -260,7 +260,7 @@ internal sealed class Setup : Form
 
 	static string GuessShareRoot()
 	{
-		var unc = @"\\10.55.2.238\paylasim\GM_Planlama_Tesis_Direktorlugu\MALZEME YÖNETİMİ MÜDÜRLÜĞÜ\3 - Müdürlük Ortak Alan\1-Ortak Döküman Alanı\8-Talep Kontrol\9-Uygulama";
+		var unc = @"\\cedas.com\paylasim\GM_Planlama_Tesis_Direktorlugu\MALZEME YÖNETİMİ MÜDÜRLÜĞÜ\3 - Müdürlük Ortak Alan\1-Ortak Döküman Alanı\8-Talep Kontrol\9-Uygulama";
 		try
 		{
 			var cfg = Path.Combine(DefaultInstallDir, "config.json");

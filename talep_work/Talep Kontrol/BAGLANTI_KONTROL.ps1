@@ -12,9 +12,17 @@ try {
 Write-Host 'Talep Kontrol - baglanti kontrolu' -ForegroundColor Cyan
 Write-Host ('Kaynak: '+[string]$cfg.external_root)
 Write-Host ('Kaynak erisimi: '+(Test-Path -LiteralPath $cfg.external_root -PathType Container))
-foreach($dir in @('1-ZMM048','2-MB51','3-MB52','4-Keşifler','5-Tanımlar')) {
+foreach($dir in @('1-ZMM048','2-MB51','3-MB52','4-Keşifler','5-Tanımlar','6-ZMM098')) {
     $path=Join-Path ([string]$cfg.external_root) $dir
     Write-Host ("$dir : " + (Test-Path -LiteralPath $path -PathType Container))
+}
+$parent=[string]$cfg.corporate_document_root
+if(-not $parent){ $parent=Split-Path -Parent ([string]$cfg.external_root) }
+Write-Host ('Ust ortak alan: '+$parent)
+Write-Host ('Ust alan erisimi: '+(Test-Path -LiteralPath $parent -PathType Container))
+foreach($dir in @('2-MB51','3-MB52','5-ZMM98','7-ZMM048')) {
+    $path=Join-Path $parent $dir
+    Write-Host ("ust/$dir : " + (Test-Path -LiteralPath $path -PathType Container))
 }
 Write-Host ('Merkezi kayit: '+[string]$cfg.shared_record_root)
 Write-Host ('Kayit erisimi: '+(Test-Path -LiteralPath $cfg.shared_record_root -PathType Container))

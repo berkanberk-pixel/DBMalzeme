@@ -69,7 +69,27 @@ try:
 except (OSError, ValueError, TypeError):
     APP_BUILD = ''
 
-DEFAULT_EXTERNAL_ROOT = '\\\\10.55.2.238\\paylasim\\GM_Planlama_Tesis_Direktorlugu\\MALZEME YÖNETİMİ MÜDÜRLÜĞÜ\\3 - Müdürlük Ortak Alan\\1-Ortak Döküman Alanı\\8-Talep Kontrol'
+DEFAULT_CORPORATE_DOCUMENT_ROOT = (
+    '\\\\cedas.com\\paylasim\\GM_Planlama_Tesis_Direktorlugu'
+    '\\MALZEME YÖNETİMİ MÜDÜRLÜĞÜ\\3 - Müdürlük Ortak Alan\\1-Ortak Döküman Alanı'
+)
+DEFAULT_EXTERNAL_ROOT = DEFAULT_CORPORATE_DOCUMENT_ROOT + '\\8-Talep Kontrol'
+# 8-Talep Kontrol içi uygulama kaynak klasörleri
+APP_SOURCE_FOLDERS = {
+    '1-ZMM048': 'ZMM048',
+    '2-MB51': 'MB51',
+    '3-MB52': 'MB52',
+    '4-Keşifler': 'KESIFLER',
+    '5-Tanımlar': 'TANIMLAR',
+    '6-ZMM098': 'ZMM098',
+}
+# 1-Ortak Döküman Alanı üst klasöründeki kurumsal SAP klasörleri
+PARENT_SOURCE_FOLDERS = {
+    '2-MB51': 'MB51',
+    '3-MB52': 'MB52',
+    '5-ZMM98': 'ZMM098',
+    '7-ZMM048': 'ZMM048',
+}
 SOURCE_NAMES = ('ZMM048','MB51','MB52','ZMM098','TANIMLAR','KESIFLER')
 DATA_ARCH_V2 = DataArchitectureV2(APP_DIR)
 USER_RESP_PATH = APP_DIR / 'data_v2' / '07_AUDIT' / 'user_responsibilities.json'
@@ -104,6 +124,7 @@ DATA_PREP_TEMPLATES = {
 
 DEFAULT_CONFIG = {
     'external_root': DEFAULT_EXTERNAL_ROOT,
+    'corporate_document_root': DEFAULT_CORPORATE_DOCUMENT_ROOT,
     'recursive': False,
     'csv_only': False,
     'csv_detection_min_confidence': 0.72
@@ -238,7 +259,8 @@ def iter_candidates(root: Path, recursive: bool):
     try:
         items = (root.rglob('*') if recursive else root.iterdir())
         out=[]
-        blocked={'kontrol_baslik','kontrol_malzeme','kontrol_proje','kayitlar','0-database'}
+        blocked={'kontrol_baslik','kontrol_malzeme','kontrol_proje','kayitlar','0-database',
+                 '9-uygulama','9-testsap','panel-yetkileri','kaynak_verileri'}
         for p in items:
             if not p.is_file() or p.name.startswith('~$') or p.suffix.lower() not in ('.csv','.xlsx','.xlsm','.xls','.xlsb'):
                 continue
@@ -250,6 +272,44 @@ def iter_candidates(root: Path, recursive: bool):
         return out
     except Exception:
         return []
+
+
+def _corporate_document_root(cfg, external_root: Path) -> Path:
+    configured = str((cfg or {}).get('corporate_document_root') or '').strip()
+    if configured:
+        return Path(configured)
+    # Varsayılan: ...\1-Ortak Döküman Alanı (8-Talep Kontrol'ün bir üstü)
+    if external_root.name.casefold() == '8-talep kontrol':
+        return external_root.parent
+    return Path(DEFAULT_CORPORATE_DOCUMENT_ROOT)
+
+
+def _normalize_folder_map(raw, default_dirname_to_logical):
+    """Hem {klasör: kaynak} hem {kaynak: klasör} biçimini destekler."""
+    if not raw:
+        return dict(default_dirname_to_logical)
+    mapping = {str(k): str(v) for k, v in dict(raw).items()}
+    if mapping and all(k in SOURCE_NAMES for k in mapping.keys()):
+        return {v: k for k, v in mapping.items()}
+    return mapping
+
+
+def _scan_mapped_folders(all_scan, folders, root: Path, recursive: bool, min_conf: float, lane: str):
+    """Belirli klasör→kaynak eşlemesiyle tarar; lane çakışma seçiminde kullanılır."""
+    for dirname, expected in folders.items():
+        directory = root / dirname
+        for path in iter_candidates(directory, recursive):
+            for meta in _source_scan_candidate(path, 'external', min_conf, expected):
+                detected = meta.get('source')
+                if meta.get('classified') and detected not in (expected, 'ZMM098'):
+                    meta = {'path': path, 'origin': 'external', 'classified': False,
+                            'reason': f'Klasör kaynak türü uyumsuz: beklenen {expected}, dosya {detected}',
+                            'source_lane': lane, 'source_folder': dirname}
+                else:
+                    meta = dict(meta)
+                    meta['source_lane'] = lane
+                    meta['source_folder'] = dirname
+                all_scan.append(meta)
 
 
 def _norm_header(value):
@@ -697,9 +757,19 @@ def _infer_kesif_role(meta,depot_work):
 
 
 def _choose_latest(cands):
-    if not cands:return None
-    preferred=[c for c in cands if c['origin']=='external'] or cands
-    return max(preferred,key=lambda x:x['mtime_ns'])
+    """En güncel, yüksek güvenli ve mümkünse üst klasör (kurumsal) kaynağı seç."""
+    if not cands:
+        return None
+    preferred = [c for c in cands if c.get('origin') == 'external'] or list(cands)
+
+    def rank(c):
+        lane = 1 if c.get('source_lane') == 'corporate-parent' else 0
+        return (int(c.get('mtime_ns') or 0),
+                int(c.get('confidence') or 0),
+                int(c.get('size') or 0),
+                lane)
+
+    return max(preferred, key=rank)
 
 
 def _sheet_name(source,role,path):
@@ -717,6 +787,7 @@ def _public_file(meta,source,index):
         'origin':meta['origin'],'role':role,'sheet':_sheet_name(source,role,p),
         'confidence':meta.get('confidence',0),'delimiter':meta.get('delimiter',';'),'encoding':meta.get('encoding') or 'utf-8',
         'headerRow':int(meta.get('headerRow',0)),
+        'sourceLane':meta.get('source_lane') or '','sourceFolder':meta.get('source_folder') or '',
         'url':'/api/file?source='+urllib.parse.quote(source)+'&index='+str(index)
     }
 
@@ -726,21 +797,15 @@ def source_snapshot():
     recursive=bool(cfg.get('recursive',False));all_scan=[]
     external_raw=str(cfg.get('external_root') or '').strip()
     external_root=_resolve_setting_path(external_raw,BUNDLED_ROOT) if external_raw else BUNDLED_ROOT.resolve()
+    corporate_root=_corporate_document_root(cfg, external_root)
     if cfg.get('strict_external_sources'):
-        # Read only the five explicitly authorised corporate source folders.
-        # 0-Database must NEVER be scanned as SAP/keşif source data.
-        mapping={'1-ZMM048':'ZMM048','2-MB51':'MB51','3-MB52':'MB52',
-                 '4-Keşifler':'KESIFLER','5-Tanımlar':'TANIMLAR',
-                 '6-ZMM098':'ZMM098'}
-        for dirname, expected in mapping.items():
-            directory=external_root / dirname
-            for path in iter_candidates(directory,recursive):
-                for meta in _source_scan_candidate(path,'external',min_conf,expected):
-                    detected=meta.get('source')
-                    if meta.get('classified') and detected not in (expected,'ZMM098'):
-                        meta={'path':path,'origin':'external','classified':False,
-                              'reason':f'Klasör kaynak türü uyumsuz: beklenen {expected}, dosya {detected}'}
-                    all_scan.append(meta)
+        # 8-Talep Kontrol altı + 1-Ortak Döküman Alanı üst klasör SAP kaynakları.
+        # 0-Database / 9-Uygulama / 9-TestSAP asla kaynak olarak taranmaz.
+        app_folders=_normalize_folder_map(cfg.get('source_subfolders'), APP_SOURCE_FOLDERS)
+        parent_folders=_normalize_folder_map(cfg.get('parent_source_folders'), PARENT_SOURCE_FOLDERS)
+        _scan_mapped_folders(all_scan, app_folders, external_root, recursive, min_conf, 'talep-kontrol')
+        if str(corporate_root).rstrip('\\/').casefold() != str(external_root).rstrip('\\/').casefold():
+            _scan_mapped_folders(all_scan, parent_folders, corporate_root, recursive, min_conf, 'corporate-parent')
     else:
         roots=[external_root,BUNDLED_ROOT.resolve()]
         for idx,root in enumerate(roots):
@@ -748,7 +813,9 @@ def source_snapshot():
             origin='bundled' if root==BUNDLED_ROOT.resolve() else 'external'
             if idx and roots[0].resolve()==root:continue
             for path in iter_candidates(root,recursive if origin=='external' else False):
-                all_scan.extend(_source_scan_candidate(path,origin,min_conf))
+                for meta in _source_scan_candidate(path,origin,min_conf):
+                    meta=dict(meta);meta['source_lane']='talep-kontrol' if origin=='external' else 'bundled'
+                    all_scan.append(meta)
     classified=[c for c in all_scan if c.get('classified')]
     depot_work=_build_depot_work_map(classified)
     for c in classified:
@@ -760,7 +827,10 @@ def source_snapshot():
         pick=_choose_latest(cs)
         if pick:selected[source]=[pick]
         for c in cs:
-            if pick is not None and c is not pick:ignored.append((c,f'{source} için daha güncel içerik bulundu.'))
+            if pick is not None and c is not pick:
+                lane=c.get('source_lane') or '?'
+                winner=pick.get('source_lane') or '?'
+                ignored.append((c,f'{source}: daha güncel/sağlıklı aday seçildi ({winner} > {lane}).'))
 
     for role in ('SITE_DEPOLAR','SITE_PROJELER','SITE_MALZEMELER','TB_ISLEM_TURU','TB_TEDAS_KOD'):
         cs=[c for c in classified if c.get('source')=='TANIMLAR' and c.get('role')==role]
@@ -785,21 +855,29 @@ def source_snapshot():
         size=sum(x['size'] for x in files);lm=max(x['lastModified'] for x in files)
         origins={x['origin'] for x in files};origin='external' if 'external' in origins else 'bundled'
         conf=round(sum(x['confidence'] for x in files)/len(files))
+        lanes={str(x.get('source_lane') or '') for x in chosen}
         result[source]={
             'name':files[0]['name'] if len(files)==1 else f'{len(files)} kaynak dosyası',
             'path':files[0]['path'] if len(files)==1 else ' | '.join(x['name'] for x in files),
             'size':size,'lastModified':lm,'modifiedIso':time.strftime('%Y-%m-%dT%H:%M:%S',time.localtime(lm/1000)),
-            'origin':origin,'confidence':conf,'detection':'content','files':files
+            'origin':origin,'confidence':conf,'detection':'content','files':files,
+            'sourceLane':next(iter(lanes)) if len(lanes)==1 else 'mixed'
         }
 
     diagnostics=[]
     if cfg.get('strict_external_sources'):
         if not external_root.is_dir():
-            diagnostics.append({'level':'bad','text':'Kurumsal kaynak ana klasörüne erişilemiyor: '+str(external_root)})
+            diagnostics.append({'level':'bad','text':'Kurumsal Talep Kontrol klasörüne erişilemiyor: '+str(external_root)})
         else:
-            for dirname in ('1-ZMM048','2-MB51','3-MB52','4-Keşifler','5-Tanımlar','6-ZMM098'):
+            for dirname in APP_SOURCE_FOLDERS:
                 if not (external_root/dirname).is_dir():
-                    diagnostics.append({'level':'warn','text':'Kaynak alt klasörü erişilemiyor veya bulunamadı: '+dirname})
+                    diagnostics.append({'level':'warn','text':'Talep Kontrol kaynak alt klasörü yok: '+dirname})
+        if not corporate_root.is_dir():
+            diagnostics.append({'level':'warn','text':'Üst ortak belge alanına erişilemiyor: '+str(corporate_root)})
+        else:
+            for dirname in PARENT_SOURCE_FOLDERS:
+                if not (corporate_root/dirname).is_dir():
+                    diagnostics.append({'level':'warn','text':'Üst klasör kaynak yolu yok: '+dirname})
     for c in all_scan:
         if not c.get('classified'):
             diagnostics.append({'level':'warn','text':f"Kaynak tanınamadı: {c['path'].name} — {c.get('reason','yapı eşleşmedi')}"})
@@ -809,6 +887,7 @@ def source_snapshot():
     if unknown:
         diagnostics.append({'level':'warn','text':'Bazı keşif CSV dosyaları TESİS/KET/BAKIM/LED alt türüne kesin ayrılamadı; satırlar TANIMLAR depo iş türü üzerinden değerlendirilecek.'})
     cfg['_scan_diagnostics']=diagnostics;cfg['_scan_count']=len(all_scan)
+    cfg['_corporate_document_root']=str(corporate_root)
     return cfg,result,missing
 
 

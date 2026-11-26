@@ -13,7 +13,7 @@ class CentralPathShortTests(unittest.TestCase):
         rel = srv._central_blob_rel(digest, 'MB52.csv')
         self.assertEqual(rel, Path('dosyalar') / 'b0a6f5a1f0f50449.csv')
         unc = (
-            r'\\10.55.2.238\paylasim\GM_Planlama_Tesis_Direktorlugu'
+            r'\\cedas.com\paylasim\GM_Planlama_Tesis_Direktorlugu'
             r'\MALZEME YÖNETİMİ MÜDÜRLÜĞÜ\3 - Müdürlük Ortak Alan'
             r'\1-Ortak Döküman Alanı\8-Talep Kontrol\0-Database'
             r'\KAYNAK_VERILERI\MB52'
