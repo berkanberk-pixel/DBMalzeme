@@ -59,6 +59,7 @@ Yönetim Paneli kapsam ekranı sadece keşif doğrulaması içindir.
 
 MERKEZİ KAYNAK KOPYASI
 İlk okunan kaynaklar Windows yazma izni varsa 0-Database\KAYNAK_VERILERI altına kaydedilir.
+Dosyalar kısa içerik adıyla (dosyalar\<16hex>.csv) yazılır; derin UNC yollarında WinError 206 önlenir.
 İçeriği değişen dosyayı Veri Merkezi > Sistem ve Kaynaklar > Sistem Sağlığı ekranında
 Yeni veri var > Yeni Veriye Güncelle ile onaylayın. Kalite kontrolü başarılı olunca yeni kopya kullanılır.
 

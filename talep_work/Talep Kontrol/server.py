@@ -1147,6 +1147,60 @@ def _central_source_root(cfg):
     return None
 
 
+def _win_long_path(path):
+    """Windows MAX_PATH (260) sınırını aşan UNC/yerel yollar için \\?\\ öneki."""
+    text = str(path)
+    if os.name != 'nt' or text.startswith('\\\\?\\'):
+        return Path(text)
+    if text.startswith('\\\\'):
+        return Path('\\\\?\\UNC\\' + text[2:])
+    return Path('\\\\?\\' + text)
+
+
+def _native_path(path):
+    text = str(path)
+    if text.startswith('\\\\?\\UNC\\'):
+        return Path('\\\\' + text[8:])
+    if text.startswith('\\\\?\\'):
+        return Path(text[4:])
+    return Path(text)
+
+
+def _central_blob_suffix(name):
+    suffix = Path(str(name or '')).suffix.lower()
+    return suffix if suffix in {'.csv', '.xlsx', '.xlsm', '.txt'} else '.bin'
+
+
+def _central_blob_rel(digest, name):
+    """Kısa içerik adresli göreli yol — derin UNC paylaşımlarında WinError 206 önler.
+
+    Eski düzen: dosyalar/<64hex>/<orijinal_ad>
+    Yeni düzen: dosyalar/<16hex><uzanti>  (tam sha256 active.json'da kalır)
+    """
+    short = str(digest)[:16]
+    return Path('dosyalar') / f'{short}{_central_blob_suffix(name)}'
+
+
+def _central_blob_candidates(directory, digest, name):
+    safe = Path(str(name or '')).name
+    short = str(digest)[:16]
+    return [
+        directory / _central_blob_rel(digest, safe),
+        directory / 'dosyalar' / short / safe,
+        directory / 'dosyalar' / digest / safe,
+    ]
+
+
+def _resolve_central_blob(directory, digest, name, size=None):
+    for path in _central_blob_candidates(directory, digest, name):
+        try:
+            if path.is_file() and (size is None or path.stat().st_size == size):
+                return path
+        except OSError:
+            continue
+    return _central_blob_candidates(directory, digest, name)[0]
+
+
 def _central_source_info(root, source):
     if root is None:
         return None
@@ -1160,7 +1214,7 @@ def _central_source_info(root, source):
             name = entry['name']
             if not re.fullmatch(r'[0-9a-f]{64}', digest) or Path(name).name != name or name in ('', '.', '..'):
                 return None
-            path = directory / 'dosyalar' / digest / name
+            path = _resolve_central_blob(directory, digest, name, entry.get('size'))
             if not path.is_file() or path.stat().st_size != entry['size']:
                 return None
             files.append({**entry, 'path': str(path)})
@@ -1176,18 +1230,50 @@ def _cache_central_source(root, source, info):
         path = Path(entry['path'])
         revision = _source_file_revision(path)
         digest = _source_sha256(path, revision)
-        target = directory / 'dosyalar' / digest / path.name
-        if target != path and (not target.is_file() or
-                               _source_sha256(target, _source_file_revision(target)) != digest):
-            target.parent.mkdir(parents=True, exist_ok=True)
-            tmp = target.with_name(uuid.uuid4().hex + '.next')
-            try:
-                shutil.copy2(path, tmp)
-                if _source_sha256(tmp, _source_file_revision(tmp)) != digest:
-                    raise OSError(f'Kaynak kopyalanırken değişti: {path.name}')
-                os.replace(tmp, target)
-            finally:
-                tmp.unlink(missing_ok=True)
+        target = directory / _central_blob_rel(digest, path.name)
+        if target != path:
+            have = False
+            if target.is_file():
+                try:
+                    have = _source_sha256(target, _source_file_revision(target)) == digest
+                except OSError:
+                    have = False
+            if not have:
+                copy_from = path
+                for legacy in _central_blob_candidates(directory, digest, path.name)[1:]:
+                    try:
+                        if legacy.is_file() and _source_sha256(legacy, _source_file_revision(legacy)) == digest:
+                            copy_from = legacy
+                            break
+                    except OSError:
+                        pass
+                long_parent = _win_long_path(target.parent)
+                long_parent.mkdir(parents=True, exist_ok=True)
+                long_target = _win_long_path(target)
+                tmp = _win_long_path(target.parent / (uuid.uuid4().hex[:16] + '.next'))
+                try:
+                    shutil.copy2(copy_from, tmp)
+                    if _source_sha256(_native_path(tmp), _source_file_revision(_native_path(tmp))) != digest:
+                        raise OSError(f'Kaynak kopyalanırken değişti: {path.name}')
+                    os.replace(tmp, long_target)
+                except OSError as exc:
+                    try:
+                        _native_path(tmp).unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                    err = str(exc)
+                    if getattr(exc, 'winerror', None) == 206 or '206' in err:
+                        raise OSError(
+                            'Merkezi yol Windows dosya adı sınırını aşıyor (WinError 206). '
+                            f'Kısa kopya yolu: {target}. Ayrıntı: {exc}'
+                        ) from exc
+                    raise
+                finally:
+                    try:
+                        _native_path(tmp).unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                target = _native_path(long_target)
         files.append({**entry, 'path': str(target), 'name': path.name,
                       'size': revision[0], 'sha256': digest,
                       'cachedRevision': _source_file_revision(target),
@@ -1205,12 +1291,18 @@ def _publish_central_source(root, source, info):
                 ('name', 'size', 'sha256', 'role', 'sheet', 'delimiter', 'encoding', 'headerRow', 'format',
                  'cachedRevision', 'inputPath', 'inputRevision')}
                for entry in info['files']]
-    tmp = directory / (uuid.uuid4().hex + '.next')
+    long_dir = _win_long_path(directory)
+    long_dir.mkdir(parents=True, exist_ok=True)
+    tmp = long_dir / (uuid.uuid4().hex[:16] + '.next')
+    final = long_dir / 'active.json'
     try:
         tmp.write_text(json.dumps({'files': entries}, ensure_ascii=False), encoding='utf-8')
-        os.replace(tmp, directory / 'active.json')
+        os.replace(tmp, final)
     finally:
-        tmp.unlink(missing_ok=True)
+        try:
+            _native_path(tmp).unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _logical_to_underlying(logical):
