@@ -21,11 +21,22 @@ class HalitUxOpsTests(unittest.TestCase):
         self.assertIn('function syncSourceHealthPanelVisibility', js)
         self.assertIn('details.hidden=!isDataCenterActive()', js)
 
-    def test_source_ops_terminal_exists(self):
+    def test_diag_console_ctrl_q_replaces_bottom_ops_terminal(self):
         html = (ROOT / 'index.html').read_text(encoding='utf-8')
-        self.assertIn('id="sourceOpsTerminal"', html)
+        self.assertNotIn('id="sourceOpsTerminal"', html)
+        self.assertIn('id="diagConsole"', html)
+        self.assertIn('id="diagTaskList"', html)
+        self.assertIn('id="diagLog"', html)
         js = (ROOT / 'app.js').read_text(encoding='utf-8')
         self.assertIn('function logSourceOp', js)
+        self.assertIn('function initDiagConsole', js)
+        self.assertIn('function toggleDiagConsole', js)
+        self.assertIn("toLowerCase()==='q'", js)
+        self.assertIn('function buildDiagExportText', js)
+        self.assertNotIn('initSourceOpsTerminal', js)
+        css = (ROOT / 'styles.css').read_text(encoding='utf-8')
+        self.assertIn('.diag-console', css)
+        self.assertNotIn('.source-ops-terminal{', css)
 
     def test_service_disconnect_does_not_force_source_readonly(self):
         js = (ROOT / 'app.js').read_text(encoding='utf-8')

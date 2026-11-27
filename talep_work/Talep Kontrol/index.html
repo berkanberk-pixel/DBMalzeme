@@ -1384,17 +1384,30 @@
   </div>
 
   <div id="toastStack" class="toast-stack" aria-live="polite" aria-atomic="false"></div>
-  <aside id="sourceOpsTerminal" class="source-ops-terminal" aria-label="Kaynak işlem izi" hidden>
-    <header class="source-ops-head">
-      <strong>Kaynak işlemleri</strong>
-      <span class="muted small">Durum · satır · zaman</span>
-      <div class="source-ops-actions">
-        <button id="sourceOpsClear" type="button" class="btn btn-ghost" title="İzi temizle">Temizle</button>
-        <button id="sourceOpsToggle" type="button" class="btn btn-ghost" title="Daralt/genişlet">▼</button>
+  <div id="diagConsole" class="diag-console" hidden role="dialog" aria-modal="true" aria-label="Tanı konsolu">
+    <div class="diag-console-panel">
+      <header class="diag-console-head">
+        <strong>Tanı · Ctrl+Q</strong>
+        <span class="muted small">Gizli log + görevler · Halit aktarımı</span>
+        <div class="diag-console-actions">
+          <button id="diagCopyBtn" type="button" class="btn btn-ghost">Kopyala</button>
+          <button id="diagClearBtn" type="button" class="btn btn-ghost">Temizle</button>
+          <button id="diagCloseBtn" type="button" class="btn btn-ghost" title="Kapat">✕</button>
+        </div>
+      </header>
+      <div class="diag-console-body">
+        <section class="diag-tasks-pane" aria-label="Görev yöneticisi">
+          <h3>Görevler</h3>
+          <div id="diagTaskList" class="diag-task-list"></div>
+          <div id="diagSnapMeta" class="diag-snap-meta muted small"></div>
+        </section>
+        <section class="diag-log-pane" aria-label="İşlem günlüğü">
+          <h3>Log</h3>
+          <div id="diagLog" class="diag-log" role="log" aria-live="polite"></div>
+        </section>
       </div>
-    </header>
-    <div id="sourceOpsLog" class="source-ops-log" role="log" aria-live="polite"></div>
-  </aside>
+    </div>
+  </div>
   <aside id="tkDesktopStatus" class="tk-desktop-status" role="status" aria-live="polite" hidden><span id="tkDesktopStatusIcon" aria-hidden="true">ⓘ</span><div><strong id="tkDesktopStatusTitle">Sistem durumu</strong><p id="tkDesktopStatusMessage"></p></div><button type="button" id="tkDesktopStatusClose" aria-label="Bildirimleri küçült">×</button></aside>
   <script src="export-utils.js?v=20261116"></script>
   <script src="app.js?v=20261116"></script>

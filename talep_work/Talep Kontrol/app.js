@@ -26,7 +26,24 @@ function esc(v=''){return String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt
 function key(...x){return x.map(v=>String(v??'').trim()).join('|')}
 function uniq(a){return [...new Set(a.filter(v=>v!==''&&v!=null))]}
 function autoToastType(msg=''){const s=norm(msg);if(/(hata|başarısız|bulunamadi|bulunamadı|gecersiz|geçersiz|yetersiz|açık oluşuyor|acik olusuyor)/.test(s))return 'error';if(/(uyari|uyarı|kontrol edilmeli|inceleme|eksik)/.test(s))return 'warn';if(/(kaydedildi|hazirlandi|hazırlandı|yenilendi|eklendi|ayristirildi|ayrıştırıldı|acildi|açıldı|kopyalandi|kopyalandı|guncellendi|güncellendi)/.test(s))return 'success';return 'info'}
-function toast(msg,type='auto',duration=4200,titleOverride=''){const stack=$('#toastStack');if(!stack)return;const tone=type==='auto'?autoToastType(String(msg||'')):type;const title=titleOverride||(tone==='error'?'Hata':tone==='warn'?'Uyarı':tone==='success'?'Başarılı':'Bilgi');const icons={success:'✓',warn:'!',error:'✕',info:'i'};const card=document.createElement('section');card.className=`toast-card ${tone}`;card.innerHTML=`<div class="toast-icon">${icons[tone]||'i'}</div><div class="toast-copy"><strong>${esc(title)}</strong><div>${esc(msg)}</div></div><button type="button" class="toast-close" aria-label="Bildirimi kapat">×</button><div class="toast-progress"></div>`;stack.prepend(card);requestAnimationFrame(()=>card.classList.add('show'));const close=()=>{card.classList.remove('show');card.classList.add('hide');setTimeout(()=>card.remove(),260)};card.querySelector('.toast-close')?.addEventListener('click',close);card._timer=setTimeout(close,duration);card.addEventListener('mouseenter',()=>clearTimeout(card._timer));card.addEventListener('mouseleave',()=>card._timer=setTimeout(close,1800));}
+function toast(msg,type='auto',duration=4200,titleOverride=''){
+  const stack=$('#toastStack');if(!stack)return;
+  const tone=type==='auto'?autoToastType(String(msg||'')):type;
+  const title=titleOverride||(tone==='error'?'Hata':tone==='warn'?'Uyarı':tone==='success'?'Başarılı':'Bilgi');
+  // Net hata aktarımı: uyarı/hata toast'ları gizli tanı loguna düşer (Ctrl+Q).
+  if(tone==='error'||tone==='warn'){
+    try{logSourceOp('TOAST',tone,String(msg||''))}catch(_){}
+  }
+  const icons={success:'✓',warn:'!',error:'✕',info:'i'};
+  const card=document.createElement('section');card.className=`toast-card ${tone}`;
+  card.innerHTML=`<div class="toast-icon">${icons[tone]||'i'}</div><div class="toast-copy"><strong>${esc(title)}</strong><div>${esc(msg)}</div></div><button type="button" class="toast-close" aria-label="Bildirimi kapat">×</button><div class="toast-progress"></div>`;
+  stack.prepend(card);requestAnimationFrame(()=>card.classList.add('show'));
+  const close=()=>{card.classList.remove('show');card.classList.add('hide');setTimeout(()=>card.remove(),260)};
+  card.querySelector('.toast-close')?.addEventListener('click',close);
+  card._timer=setTimeout(close,duration);
+  card.addEventListener('mouseenter',()=>clearTimeout(card._timer));
+  card.addEventListener('mouseleave',()=>card._timer=setTimeout(close,1800));
+}
 window.addEventListener('talep-update-result', event=>{
   const outcomes={
     guncellendi:['Talep Kontrol güncellendi.','success'],
@@ -348,38 +365,152 @@ let sourceForceSyncInFlight=null;
 let backgroundSourceSyncScheduled=false;
 const sourceBookFingerprints=new Map();
 const sourceOpsLog=[];
+const diagTasks=new Map();
+let diagConsoleOpen=false;
+let diagTaskTimer=null;
 // [1] Progressive: first-screen priority; MB51/KESIFLER stay lazy API.
 const BOOT_PRIORITY_SOURCES=['TANIMLAR','ZMM048','ZMM098','MB52'];
 const LAZY_BOOK_SOURCES=new Set(['MB51','KESIFLER']);
 function logSourceOp(source,status,detail='',rows=null){
   const ts=new Date().toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
   const line={ts,source:String(source||'—'),status:String(status||''),detail:String(detail||''),rows:rows==null?'':String(rows)};
-  sourceOpsLog.unshift(line);if(sourceOpsLog.length>80)sourceOpsLog.length=80;
-  const box=$('#sourceOpsLog');if(!box)return;
-  const row=document.createElement('div');
-  row.className='source-ops-line status-'+String(status||'').toLowerCase().replace(/[^a-z0-9_-]+/g,'');
-  row.innerHTML=`<span class="ops-ts">${esc(ts)}</span><span class="ops-src">${esc(line.source)}</span><span class="ops-st">${esc(line.status)}</span><span class="ops-rows">${line.rows!==''?esc(line.rows)+' satır':''}</span><span class="ops-detail">${esc(line.detail)}</span>`;
-  box.prepend(row);
-  while(box.children.length>60)box.removeChild(box.lastChild);
-  const term=$('#sourceOpsTerminal');if(term)term.hidden=false;
+  sourceOpsLog.unshift(line);if(sourceOpsLog.length>200)sourceOpsLog.length=200;
+  if(!diagConsoleOpen)return;
+  renderDiagLogLine(line,true);
 }
-function initSourceOpsTerminal(){
-  const clear=$('#sourceOpsClear');if(clear)clear.onclick=()=>{sourceOpsLog.length=0;const box=$('#sourceOpsLog');if(box)box.innerHTML=''};
-  const toggle=$('#sourceOpsToggle');if(toggle)toggle.onclick=()=>{const term=$('#sourceOpsTerminal');if(!term)return;term.classList.toggle('collapsed');toggle.textContent=term.classList.contains('collapsed')?'▲':'▼'};
+function renderDiagLogLine(line,prepend=true){
+  const box=$('#diagLog');if(!box)return;
+  const row=document.createElement('div');
+  row.className='diag-log-line status-'+String(line.status||'').toLowerCase().replace(/[^a-z0-9_-]+/g,'');
+  row.innerHTML=`<span class="ops-ts">${esc(line.ts)}</span><span class="ops-src">${esc(line.source)}</span><span class="ops-st">${esc(line.status)}</span><span class="ops-rows">${line.rows!==''?esc(line.rows)+' satır':''}</span><span class="ops-detail" title="${esc(line.detail)}">${esc(line.detail)}</span>`;
+  if(prepend)box.prepend(row);else box.appendChild(row);
+  while(box.children.length>120)box.removeChild(box.lastChild);
+}
+function diagTaskStart(id,name,detail=''){
+  diagTasks.set(id,{id,name:String(name||id),status:'running',detail:String(detail||''),started:Date.now(),ended:null});
+  if(diagConsoleOpen)renderDiagTasks();
+}
+function diagTaskEnd(id,status='ok',detail=''){
+  const prev=diagTasks.get(id)||{id,name:id,started:Date.now()};
+  diagTasks.set(id,{...prev,status:String(status||'ok'),detail:detail!==''?String(detail):(prev.detail||''),ended:Date.now()});
+  if(diagConsoleOpen)renderDiagTasks();
+  // Keep finished tasks briefly, prune old ones.
+  const now=Date.now();
+  for(const [k,t] of [...diagTasks.entries()]){
+    if(t.status!=='running'&&t.ended&&now-t.ended>120000)diagTasks.delete(k);
+  }
+}
+function collectDiagTasks(){
+  const rows=[...diagTasks.values()];
+  if(sourceLoadInFlight)rows.push({id:'_load',name:'Kaynak yükleme (light)',status:'running',detail:'loadSources',started:Date.now(),ended:null});
+  if(sourceForceSyncInFlight)rows.push({id:'_force',name:'Ağ / forceScan',status:'running',detail:'UNC refresh',started:Date.now(),ended:null});
+  const eng=state.meta.dataEngine||{};
+  if(eng.building)rows.push({id:'_engine',name:'İndeks rebuild',status:'running',detail:String(eng.status||'REBUILDING'),started:Date.now(),ended:null});
+  return rows;
+}
+function renderDiagTasks(){
+  const box=$('#diagTaskList');if(!box)return;
+  const rows=collectDiagTasks();
+  if(!rows.length){box.innerHTML='<div class="muted small">Aktif görev yok.</div>';}
+  else{
+    box.innerHTML=rows.map(t=>{
+      const st=t.status==='running'?'Çalışıyor':(t.status==='err'||t.status==='error'?'Hata':(t.status==='ok'?'Tamam':'—'));
+      const cls=t.status==='running'?'is-running':((t.status==='err'||t.status==='error')?'is-err':'is-ok');
+      const age=t.started?Math.max(0,Math.round(((t.ended||Date.now())-t.started)/1000))+' sn':'';
+      return `<div class="diag-task ${cls}"><div class="diag-task-name">${esc(t.name)}</div><div class="diag-task-st">${esc(st)}${age?' · '+age:''}</div><div class="diag-task-detail">${esc(t.detail||'')}</div></div>`;
+    }).join('');
+  }
+  const meta=$('#diagSnapMeta');
+  if(meta){
+    const sa=state.meta.sourceAccess||{};
+    const diag=sa.diagnosis||{};
+    meta.textContent=[
+      `sourceAccess.current=${sa.current===true?'1':'0'} code=${diag.reasonCode||'—'}`,
+      `engine=${state.meta.dataEngine?.status||'—'}/usable=${state.meta.dataEngine?.usable?'1':'0'}/building=${state.meta.dataEngine?.building?'1':'0'}`,
+      `release=${state.meta.releaseId||diag.releaseId||'—'} · ${sa.reason||diag.reason||''}`,
+      `missing=${(diag.missing||sa.missing||[]).join(',')||'—'}`,
+    ].filter(Boolean).join('\n');
+  }
+}
+function buildDiagExportText(){
+  const tasks=collectDiagTasks().map(t=>`- [${t.status}] ${t.name}${t.detail?' — '+t.detail:''}`).join('\n')||'(yok)';
+  const logs=sourceOpsLog.slice(0,80).map(l=>`${l.ts}\t${l.source}\t${l.status}\t${l.rows||''}\t${l.detail}`).join('\n')||'(yok)';
+  const sa=state.meta.sourceAccess||{};
+  const diag=sa.diagnosis||{};
+  return [
+    'Talep Kontrol tanı dökümü (Ctrl+Q)',
+    `zaman=${new Date().toISOString()}`,
+    `release=${state.meta.releaseId||diag.releaseId||'—'} version=${state.meta.serviceVersion||'—'}`,
+    `sourceAccess current=${sa.current===true} code=${diag.reasonCode||'—'} reason=${sa.reason||''}`,
+    `engine status=${state.meta.dataEngine?.status||'—'} usable=${!!state.meta.dataEngine?.usable} building=${!!state.meta.dataEngine?.building}`,
+    `missing=${(diag.missing||[]).join(',')||'—'}`,
+    '',
+    '## Görevler',
+    tasks,
+    '',
+    '## Log',
+    logs,
+  ].join('\n');
+}
+function openDiagConsole(){
+  const el=$('#diagConsole');if(!el)return;
+  el.hidden=false;diagConsoleOpen=true;
+  const box=$('#diagLog');if(box){box.innerHTML='';sourceOpsLog.slice().reverse().forEach(line=>renderDiagLogLine(line,false))}
+  renderDiagTasks();
+  if(diagTaskTimer)clearInterval(diagTaskTimer);
+  diagTaskTimer=setInterval(()=>{if(diagConsoleOpen)renderDiagTasks()},1000);
+}
+function closeDiagConsole(){
+  const el=$('#diagConsole');if(el)el.hidden=true;
+  diagConsoleOpen=false;
+  if(diagTaskTimer){clearInterval(diagTaskTimer);diagTaskTimer=null}
+}
+function toggleDiagConsole(){if(diagConsoleOpen)closeDiagConsole();else openDiagConsole()}
+async function copyDiagConsole(){
+  const text=buildDiagExportText();
+  try{
+    if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(text);
+    else{
+      const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();
+    }
+    toast('Tanı dökümü panoya kopyalandı.','success',3200);
+    logSourceOp('DIAG','copy','Halit aktarımı panoya',sourceOpsLog.length);
+  }catch(e){toast('Kopyalama başarısız: '+(e.message||e),'error');logSourceOp('DIAG','error',e.message||e)}
+}
+function initDiagConsole(){
+  $('#diagCloseBtn')?.addEventListener('click',closeDiagConsole);
+  $('#diagClearBtn')?.addEventListener('click',()=>{sourceOpsLog.length=0;const box=$('#diagLog');if(box)box.innerHTML='';logSourceOp('DIAG','clear','Log temizlendi')});
+  $('#diagCopyBtn')?.addEventListener('click',()=>{copyDiagConsole()});
+  $('#diagConsole')?.addEventListener('click',e=>{if(e.target===$('#diagConsole'))closeDiagConsole()});
+  document.addEventListener('keydown',e=>{
+    if((e.ctrlKey||e.metaKey)&&String(e.key||'').toLowerCase()==='q'){
+      e.preventDefault();toggleDiagConsole();return;
+    }
+    if(e.key==='Escape'&&diagConsoleOpen){e.preventDefault();closeDiagConsole()}
+  });
 }
 function loadSources(options={}){
   // Force UNC scan runs in its own flight so a long refresh does not steal
   // interactive light loads forever — but we still serialize to protect state.
   if(options.forceScan){
     if(sourceForceSyncInFlight)return sourceForceSyncInFlight;
+    const taskId='force-'+(options.background?'bg':'fg');
+    diagTaskStart(taskId,options.background?'Ağ taraması (arka plan)':'Ağ taraması (forceScan)',options.silent?'silent':'');
     sourceForceSyncInFlight=Promise.resolve(sourceLoadInFlight).catch(()=>null)
       .then(()=>loadSourcesOnce(options))
+      .then(()=>{diagTaskEnd(taskId,'ok','tamam');return null})
+      .catch(e=>{diagTaskEnd(taskId,'err',e.message||e);throw e})
       .finally(()=>{sourceForceSyncInFlight=null});
     return sourceForceSyncInFlight;
   }
   if(sourceLoadInFlight)return sourceLoadInFlight;
+  const taskId='load-'+(options.initial?'boot':'light');
+  diagTaskStart(taskId,options.initial?'Açılış kaynak yükleme':'Kaynak yükleme (light)',options.forceScan?'force':'light');
   const afterForce=sourceForceSyncInFlight?sourceForceSyncInFlight.catch(()=>null):Promise.resolve();
-  sourceLoadInFlight=afterForce.then(()=>loadSourcesOnce(options)).finally(()=>{sourceLoadInFlight=null});
+  sourceLoadInFlight=afterForce.then(()=>loadSourcesOnce(options))
+    .then(()=>{diagTaskEnd(taskId,'ok','tamam');return null})
+    .catch(e=>{diagTaskEnd(taskId,'err',e.message||e);throw e})
+    .finally(()=>{sourceLoadInFlight=null});
   return sourceLoadInFlight;
 }
 function scheduleBackgroundSourceSync(){
@@ -3647,7 +3778,7 @@ function initEvents(){
   };
   $('#runCheckBtn').onclick=runCheck;$('#clearReservationBtn').onclick=clearReservation;
   $('#decisionModalClose').onclick=closeDecisionModal;$('#decisionModalDone').onclick=closeDecisionModal;
-  initSourceOpsTerminal();
+  initDiagConsole();
   $('#saveDecisionRecord').onclick=saveDecisionRecord;$('#exportDecisionExcel').onclick=exportDecisionAsExcel;$('#exportDecisionPdf').onclick=exportDecisionAsPdf;$('#exportDecisionJpg').onclick=exportDecisionAsJpg;
   if($('#saveDecisionRecord')){$('#saveDecisionRecord').textContent='Kesin Kayıt (CSV)';$('#saveDecisionRecord').title='Kesin kayıt: kontrol sonucunu CSV arşivine yazar. SAP onayı değildir. Kontrol Kayıtları yalnız geçmiş görüntüler.';}
   $('#decisionResultModal').onclick=e=>{if(e.target===$('#decisionResultModal'))closeDecisionModal()};

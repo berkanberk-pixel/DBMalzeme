@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "product": "Talep Kontrol",
-  "release_id": "talep-cbd4d3f06581c476",
-  "package": "Paketler/talep-cbd4d3f06581c476/TalepKontrol.zip",
-  "sha256": "99526b3e0ccf0ef7aa6d92c5de601da5a831423400f630a446a755177e0fa79e",
-  "size_bytes": 56357698,
-  "published_utc": "2026-11-27T16:17:48.723135+00:00",
-  "notes": "v1.0.4-boot-refresh-timeout: light /api/files no UNC hang; snapshot lock fix; Yenile non-blocking; force timeout 10m; usable index not false salt-okunur"
+  "release_id": "talep-43a414e0095c3a14",
+  "package": "Paketler/talep-43a414e0095c3a14/TalepKontrol.zip",
+  "sha256": "a11ad7f12b04daed4d156890b7c3b2b1f95675e336b5c0ab3a84b0848dab7967",
+  "size_bytes": 56359982,
+  "published_utc": "2026-11-27T16:23:24.774690+00:00",
+  "notes": "v1.0.4-diag-ctrlq: remove bottom source-ops bar; Ctrl+Q hidden log + task manager + copy for Halit"
 }
