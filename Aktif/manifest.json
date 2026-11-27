@@ -1,9 +1,10 @@
 {
   "schema": 1,
   "product": "Talep Kontrol",
-  "release_id": "talep-4d81defb911a7511",
-  "package": "Paketler/talep-4d81defb911a7511/TalepKontrol.zip",
-  "sha256": "4d81defb911a75110b9009cd88b26086a0bcf2619cdaee0e02055bfaf9ce7711",
-  "size_bytes": 56267927,
-  "published_utc": "2026-11-26T08:23:39.778864+00:00"
+  "release_id": "talep-595a3884a5026799",
+  "package": "Paketler/talep-595a3884a5026799/TalepKontrol.zip",
+  "sha256": "595a3884a50267997801a22e410011cee837bc403bd899c7f9301c8257945008",
+  "size_bytes": 56275885,
+  "published_utc": "2026-11-27T07:17:55.235436+00:00",
+  "notes": "Halit revize Faz A-F v1.0.4: full load, sessiz ACTIVE accept, 24s uyarı, teşhis, stamp monitor, lazy notif, auto final"
 }

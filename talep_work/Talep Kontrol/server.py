@@ -40,6 +40,7 @@ import commitment_balances
 import capacity_projection
 import capacity_source_facts
 import source_row_diff
+import revision_runtime
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent
@@ -62,7 +63,12 @@ _ENGINE_LAST_ERROR = ''
 _ENGINE_LAST_BUILD = None
 HOST = '127.0.0.1'
 PORT = int(os.environ.get('TALEP_PORT', '8765'))
-APP_VERSION = '1.0.3'
+APP_VERSION = '1.0.4'
+RELEASE_ID = ''
+try:
+    RELEASE_ID = str(json.loads(CONFIG_PATH.read_text(encoding='utf-8-sig')).get('release_id') or '').strip()
+except (OSError, ValueError, TypeError):
+    RELEASE_ID = ''
 # FIX28H: Tek build otoritesi config.json. Launcher ve /api/health ayni ID'yi okur.
 try:
     APP_BUILD = str(json.loads(CONFIG_PATH.read_text(encoding='utf-8-sig')).get('build') or '').strip()
@@ -126,8 +132,12 @@ DEFAULT_CONFIG = {
     'external_root': DEFAULT_EXTERNAL_ROOT,
     'corporate_document_root': DEFAULT_CORPORATE_DOCUMENT_ROOT,
     'recursive': False,
+    'scan_max_depth': revision_runtime.DEFAULT_SCAN_MAX_DEPTH,
     'csv_only': False,
-    'csv_detection_min_confidence': 0.72
+    'csv_detection_min_confidence': 0.72,
+    'silent_active_accept': True,
+    'auto_final_record': True,
+    'freshness_warn_hours': revision_runtime.SOURCE_FRESHNESS_WARN_HOURS,
 }
 
 # CSV klasör taraması pahalı olabilir. Aynı açılışta /api/files ve her /api/file
@@ -247,31 +257,20 @@ def load_config():
     cfg['external_root'] = external
     cfg['roots'] = [external] if cfg.get('strict_external_sources') else [external, str(BUNDLED_ROOT)]
     cfg.setdefault('recursive', False)
+    cfg.setdefault('scan_max_depth', revision_runtime.DEFAULT_SCAN_MAX_DEPTH)
     cfg.setdefault('csv_only', False)
     cfg.setdefault('csv_detection_min_confidence', 0.72)
+    cfg.setdefault('silent_active_accept', True)
+    cfg.setdefault('auto_final_record', True)
+    cfg.setdefault('freshness_warn_hours', revision_runtime.SOURCE_FRESHNESS_WARN_HOURS)
     cfg['_config_error'] = config_error
     return cfg
 
 
-def iter_candidates(root: Path, recursive: bool):
-    if not root.exists() or not root.is_dir():
-        return []
-    try:
-        items = (root.rglob('*') if recursive else root.iterdir())
-        out=[]
-        blocked={'kontrol_baslik','kontrol_malzeme','kontrol_proje','kayitlar','0-database',
-                 '9-uygulama','9-testsap','panel-yetkileri','kaynak_verileri'}
-        for p in items:
-            if not p.is_file() or p.name.startswith('~$') or p.suffix.lower() not in ('.csv','.xlsx','.xlsm','.xls','.xlsb'):
-                continue
-            if p.name.lower() == 'muaf_listesi.csv':
-                continue
-            if any(part.lower() in blocked for part in p.parts):
-                continue
-            out.append(p)
-        return out
-    except Exception:
-        return []
+def iter_candidates(root: Path, recursive: bool, max_depth=None):
+    """[10] recursive olsa bile max_depth ile sınırlı tarama (varsayılan 1)."""
+    depth = revision_runtime.DEFAULT_SCAN_MAX_DEPTH if max_depth is None else int(max_depth)
+    return revision_runtime.iter_candidates_limited(root, recursive, depth)
 
 
 def _corporate_document_root(cfg, external_root: Path) -> Path:
@@ -294,11 +293,12 @@ def _normalize_folder_map(raw, default_dirname_to_logical):
     return mapping
 
 
-def _scan_mapped_folders(all_scan, folders, root: Path, recursive: bool, min_conf: float, lane: str):
+def _scan_mapped_folders(all_scan, folders, root: Path, recursive: bool, min_conf: float, lane: str, max_depth=None):
     """Belirli klasör→kaynak eşlemesiyle tarar; lane çakışma seçiminde kullanılır."""
+    depth = revision_runtime.scan_max_depth({'scan_max_depth': max_depth}) if max_depth is not None else None
     for dirname, expected in folders.items():
         directory = root / dirname
-        for path in iter_candidates(directory, recursive):
+        for path in iter_candidates(directory, recursive, depth if depth is not None else revision_runtime.DEFAULT_SCAN_MAX_DEPTH):
             for meta in _source_scan_candidate(path, 'external', min_conf, expected):
                 detected = meta.get('source')
                 if meta.get('classified') and detected not in (expected, 'ZMM098'):
@@ -794,25 +794,26 @@ def _public_file(meta,source,index):
 
 def source_snapshot():
     cfg=load_config();min_conf=float(cfg.get('csv_detection_min_confidence',0.72) or 0.72)
-    recursive=bool(cfg.get('recursive',False));all_scan=[]
+    recursive=bool(cfg.get('recursive',False));max_depth=revision_runtime.scan_max_depth(cfg);all_scan=[]
     external_raw=str(cfg.get('external_root') or '').strip()
     external_root=_resolve_setting_path(external_raw,BUNDLED_ROOT) if external_raw else BUNDLED_ROOT.resolve()
     corporate_root=_corporate_document_root(cfg, external_root)
     if cfg.get('strict_external_sources'):
         # 8-Talep Kontrol altı + 1-Ortak Döküman Alanı üst klasör SAP kaynakları.
         # 0-Database / 9-Uygulama / 9-TestSAP asla kaynak olarak taranmaz.
+        # [10] recursive max derinlik 1 (scan_max_depth).
         app_folders=_normalize_folder_map(cfg.get('source_subfolders'), APP_SOURCE_FOLDERS)
         parent_folders=_normalize_folder_map(cfg.get('parent_source_folders'), PARENT_SOURCE_FOLDERS)
-        _scan_mapped_folders(all_scan, app_folders, external_root, recursive, min_conf, 'talep-kontrol')
+        _scan_mapped_folders(all_scan, app_folders, external_root, recursive, min_conf, 'talep-kontrol', max_depth)
         if str(corporate_root).rstrip('\\/').casefold() != str(external_root).rstrip('\\/').casefold():
-            _scan_mapped_folders(all_scan, parent_folders, corporate_root, recursive, min_conf, 'corporate-parent')
+            _scan_mapped_folders(all_scan, parent_folders, corporate_root, recursive, min_conf, 'corporate-parent', max_depth)
     else:
         roots=[external_root,BUNDLED_ROOT.resolve()]
         for idx,root in enumerate(roots):
             root=root.resolve()
             origin='bundled' if root==BUNDLED_ROOT.resolve() else 'external'
             if idx and roots[0].resolve()==root:continue
-            for path in iter_candidates(root,recursive if origin=='external' else False):
+            for path in iter_candidates(root, recursive if origin=='external' else False, max_depth if origin=='external' else 0):
                 for meta in _source_scan_candidate(path,origin,min_conf):
                     meta=dict(meta);meta['source_lane']='talep-kontrol' if origin=='external' else 'bundled'
                     all_scan.append(meta)
@@ -1060,54 +1061,69 @@ def _manual_project_rows(depot,project_norm):
             out.append({'dy':depot,'projectNorm':p.get('projectNorm'),'projectName':p.get('projectName'),'projectCode':p.get('projectCode'),'materialCode':r.get('materialCode'),'materialDesc':r.get('materialDesc'),'uom':r.get('uom'),'planned':r.get('planned',0),'given':r.get('given',0),'remaining':r.get('remaining',0),'negativeRows':1 if float(r.get('remaining') or 0)<0 else 0,'issueRows':0,'manualProject':True})
     return out
 
-def build_notifications():
+def build_notifications(force_mb51=False):
     d=_notif_state()
-    # Kaynak değişiklikleri
+    # Kaynak değişiklikleri — [5] sessiz accept: "onay bekliyor" yerine otomatik kabul metni
     try:
         cfg,_,missing=source_snapshot_cached(force=False)
         for p in cfg.get('_pending_source_updates',[]) or []:
-            src=str(p.get('source') or 'KAYNAK'); _notif_upsert(d,'SRC-'+src,f'Yeni {src} kaynak verisi algılandı','Yeni kaynak verisi kullanıcı onayı bekliyor.','INFO','VERI_KAYNAKLARI',p,[{'label':'Veri Merkezine Git','action':'OPEN_DATA_CENTER'}])
-        for src in missing or []:_notif_upsert(d,'MISS-'+str(src),f'{src} kaynak verisi eksik','Zorunlu kaynak dosyası bulunamadı.','CRITICAL','VERI_KAYNAKLARI',{'source':src},[{'label':'Veri Merkezine Git','action':'OPEN_DATA_CENTER'}])
+            src=str(p.get('source') or 'KAYNAK')
+            msg='Yeni kaynak sessiz ACTIVE kabul ile işlenecek.' if revision_runtime.pending_auto_accept_enabled(cfg) else 'Yeni kaynak verisi inceleme bekliyor.'
+            _notif_upsert(d,'SRC-'+src,f'Yeni {src} kaynak verisi',msg,'INFO','VERI_KAYNAKLARI',p,[{'label':'Veri Merkezi','action':'OPEN_DATA_CENTER'}])
+        for src in missing or []:_notif_upsert(d,'MISS-'+str(src),f'{src} eksik','Zorunlu kaynak yok.','CRITICAL','VERI_KAYNAKLARI',{'source':src},[{'label':'Veri Merkezi','action':'OPEN_DATA_CENTER'}])
+        # [2] 24s tazelik uyarısı (bildirim; kilit değil)
+        try:
+            engine=_engine_snapshot(); health=DATA_ARCH_V2.health(engine,engine.get('quality') or {}, None)
+            warn_h=float(cfg.get('freshness_warn_hours') or revision_runtime.SOURCE_FRESHNESS_WARN_HOURS)
+            for w in revision_runtime.freshness_warnings(health, warn_h):
+                _notif_upsert(d,'FRESH-'+str(w.get('source')),f"{w.get('source')} güncelliği",w.get('message'),'WARNING','VERI_KAYNAKLARI',w,[{'label':'Verileri Yenile','action':'OPEN_DATA_CENTER'}])
+        except Exception:
+            pass
     except Exception: pass
-    # Veri kalitesi ve keşif sorunları
+    # Veri kalitesi ve keşif — minimal
     try:
         eng=_engine_snapshot(); q=eng.get('quality') or {}
-        for f in (q.get('findings') or [])[:50]:
+        for f in (q.get('findings') or [])[:30]:
             cnt=int(f.get('count') or 0)
             if cnt<=0:continue
             sev=str(f.get('severity') or 'WARNING').upper(); code=str(f.get('code') or 'QUALITY'); src=str(f.get('source') or '')
-            _notif_upsert(d,'Q-'+code,f'{src} veri kalitesi: {code}',str(f.get('message') or f.get('description') or 'Veri kalite bulgusu tespit edildi.'),sev,'VERI_KALITESI',f,[{'label':'Veri Merkezine Git','action':'OPEN_DATA_CENTER'}])
+            _notif_upsert(d,'Q-'+code,f'{src}: {code}',str(f.get('message') or f.get('description') or 'Kalite bulgusu'),sev,'VERI_KALITESI',f,[{'label':'Veri Merkezi','action':'OPEN_DATA_CENTER'}])
         with indexed_engine.connect(_active_index_db()) as c:
             for wc,label in [('T','TESİS'),('K','KET&YB'),('B','BAKIM'),('L','LED')]:
                 r=c.execute('SELECT COUNT(*) c FROM kesif WHERE work_code=? AND (remaining<0 OR issue=1)',[wc]).fetchone(); cnt=int(r['c'] or 0)
-                if cnt:_notif_upsert(d,'KESIF-'+wc,f'{label} keşif kontrolü gerekli',f'{cnt} keşif/malzeme satırında negatif veya hatalı durum tespit edildi.','WARNING','KESIF',{'workCode':wc,'count':cnt},[{'label':label+' ekranına git','action':'OPEN_WORK','workCode':wc}])
+                if cnt:_notif_upsert(d,'KESIF-'+wc,f'{label} keşif',f'{cnt} satırda sorun.','WARNING','KESIF',{'workCode':wc,'count':cnt},[{'label':label,'action':'OPEN_WORK','workCode':wc}])
     except Exception: pass
-    # Kaydedilmiş kalemleri güncel MB51 ile karşılaştır
-    try:
-        root=load_record_root(); dirs=record_dir_paths(root); files=sorted(record_visible_paths('materials',root),key=lambda x:x.stat().st_mtime,reverse=True)[:120]
-        for path in files:
-            try:
-                rows=_read_csv_dict(path)
-            except Exception: continue
-            for group in mb51_reconciliation.group_control_rows(rows):
-                r=group['rows'][0];res=str(r.get('RezervasyonNo') or '').strip();mat=group['materialCode'];approved=group['approvedQty']
-                decision='ONAYLA' if approved>0 else 'ONAYLAMA'
-                if not res or not mat:continue
-                rec=_mb51_reconcile(res,mat,approved,mb51_reconciliation.header_scope(r,group['uom']))
-                if not rec.get('verified'):
+    # [16] MB51 reconcile lazy TTL — her tick değil
+    if revision_runtime.should_run_mb51_notification_scan(force=force_mb51):
+        try:
+            root=load_record_root(); files=sorted(record_visible_paths('materials',root),key=lambda x:x.stat().st_mtime,reverse=True)[:80]
+            for path in files:
+                try:
+                    rows=_read_csv_dict(path)
+                except Exception: continue
+                for group in mb51_reconciliation.group_control_rows(rows):
+                    r=group['rows'][0];res=str(r.get('RezervasyonNo') or '').strip();mat=group['materialCode'];approved=group['approvedQty']
+                    decision='ONAYLA' if approved>0 else 'ONAYLAMA'
+                    if not res or not mat:continue
+                    rec=_mb51_reconcile(res,mat,approved,mb51_reconciliation.header_scope(r,group['uom']))
+                    if not rec.get('verified'):
+                        cid=str(r.get('KontrolID') or path.stem)
+                        _notif_upsert(d,f'MB51-UNVERIFIED-{cid}-{mat}','MB51 doğrulanamadı',str(rec.get('error') or ''),'CRITICAL','MB51',{'controlId':cid,'reservationNo':res,'materialCode':mat,**rec},[{'label':'Kayıtlar','action':'OPEN_RECORDS'}])
+                        continue
                     cid=str(r.get('KontrolID') or path.stem)
-                    _notif_upsert(d,f'MB51-UNVERIFIED-{cid}-{mat}','MB51 mutabakatı doğrulanamadı',str(rec.get('error') or ''),'CRITICAL','MB51',{'controlId':cid,'reservationNo':res,'materialCode':mat,**rec},[{'label':'Kontrol kaydına git','action':'OPEN_RECORDS'}])
-                    continue
-                cid=str(r.get('KontrolID') or path.stem)
-                if decision!='ONAYLA' and rec.get('found') and float(rec.get('actualQty') or 0)>0:
-                    _notif_upsert(d,f'UNAPPROVED-{cid}-{mat}','Onaylanmamış kalemde MB51 hareketi tespit edildi',f'{res} rezervasyonunda {mat} malzemesi onaylanmamış olmasına rağmen MB51 fiili hareketi bulundu.','CRITICAL','MB51',{'controlId':cid,'reservationNo':res,'materialCode':mat,**rec},[{'label':'Kontrol kaydına git','action':'OPEN_RECORDS'}])
-                elif decision=='ONAYLA' and rec.get('found') and rec.get('status')=='FIILI_MIKTAR_FARKI':
-                    is_tesis=str(r.get('IsTuru') or '').strip().upper() in ('TESIS','TESİS','T')
-                    target=str(r.get('HedefDepo') or '').strip()
-                    title='TESİS proje dağılımı bekliyor' if is_tesis else 'MB51 miktarı onaydan farklı'
-                    actions=[{'label':'TESİS ekranına git','action':'OPEN_TESIS','depot':target},{'label':'Kontrol kaydına git','action':'OPEN_RECORDS'}] if is_tesis else [{'label':'Kontrol kaydına git','action':'OPEN_RECORDS'}]
-                    _notif_upsert(d,f'MISMATCH-{cid}-{mat}',title,f'{mat}: onay {approved:g}, MB51 fiili {float(rec.get("actualQty") or 0):g}. '+('Fiili miktar proje/projelere yeniden dağıtılmalıdır.' if is_tesis else ''),'WARNING','MB51',{'controlId':cid,'reservationNo':res,'materialCode':mat,'depot':target,'approvedQty':approved,'requiresProjectRedistribution':is_tesis,**rec},actions)
-    except Exception: pass
+                    if decision!='ONAYLA' and rec.get('found') and float(rec.get('actualQty') or 0)>0:
+                        _notif_upsert(d,f'UNAPPROVED-{cid}-{mat}','Onaysız kalemde MB51',f'{res} / {mat}: fiili hareket var.','CRITICAL','MB51',{'controlId':cid,'reservationNo':res,'materialCode':mat,**rec},[{'label':'Kayıtlar','action':'OPEN_RECORDS'}])
+                    elif decision=='ONAYLA' and rec.get('found') and rec.get('status')=='FIILI_MIKTAR_FARKI':
+                        is_tesis=revision_runtime.is_tesis_work(r.get('IsTuru'))
+                        target=str(r.get('HedefDepo') or '').strip()
+                        # [7] Tesis → proje dağılımı balonu
+                        title='TESİS: proje dağılımı gerekli' if is_tesis else 'MB51 ≠ onay'
+                        actions=[{'label':'Proje dağılımı','action':'OPEN_TESIS','depot':target,'reservationNo':res},{'label':'Kayıtlar','action':'OPEN_RECORDS'}] if is_tesis else [{'label':'Kayıtlar','action':'OPEN_RECORDS'}]
+                        _notif_upsert(d,f'MISMATCH-{cid}-{mat}',title,f'{mat}: onay {approved:g}, fiili {float(rec.get("actualQty") or 0):g}.'+(' Dağıtın.' if is_tesis else ''),'WARNING','MB51',{'controlId':cid,'reservationNo':res,'materialCode':mat,'depot':target,'approvedQty':approved,'requiresProjectRedistribution':is_tesis,**rec},actions)
+                    elif decision=='ONAYLA' and revision_runtime.mb51_realized(rec) and not revision_runtime.is_tesis_work(r.get('IsTuru')):
+                        # [3] Tesis dışı gerçekleşme adayı bildirimi
+                        _notif_upsert(d,f'AUTO-FINAL-{cid}-{mat}','MB51 gerçekleşti — otomatik kesin kayıt',f'{res} / {mat}: önceki karar + MB51 fiili doğrulandı.','INFO','MB51',{'controlId':cid,'reservationNo':res,'materialCode':mat,'autoFinalCandidate':True,**rec},[{'label':'Kayıtlar','action':'OPEN_RECORDS'}])
+        except Exception: pass
     _save_notif_state(d)
     items=list(d['items'].values());items.sort(key=lambda x:(x.get('status')!='OPEN',x.get('read',False),x.get('updatedAt','')),reverse=False)
     return items
@@ -1587,11 +1603,15 @@ def source_access_state(cfg, sources, engine):
     if current and candidate_missing:
         notes.append('Merkezi kayıt kullanılıyor; ağ adayı eksik: '+', '.join(candidate_missing))
     network_note=' '.join(notes)
-    return {'current':current,'readOnly':not current,'missing':active_missing,
+    access={'current':current,'readOnly':not current,'missing':active_missing,
         'candidateMissing':candidate_missing,'perSource':per_source,'networkNote':network_note,
         'localDataAvailable':usable or bool((sources or {}) and not active_missing),
         'snapshotId':str(engine.get('buildId') or '')+'|'+str(engine.get('indexSourceDigest') or ''),
         'checkedAt':datetime.now().astimezone().isoformat(),'reason':reason}
+    # [6] reason + missing + dataEngine + release_id teşhis
+    return revision_runtime.diagnose_source_access(
+        access, engine or {}, cfg, release_id=RELEASE_ID or str((cfg or {}).get('release_id') or ''),
+        app_version=APP_VERSION, app_build=APP_BUILD)
 
 
 def source_pending_updates(force=True):
@@ -1696,6 +1716,147 @@ def _source_update_choice_locked(logical,choice,actor):
     DATA_ARCH_V2.audit('SOURCE','UPDATE_ACCEPTED',actor,'SOURCE',logical,{**item,'buildId':result.get('build_id'),'rowDiff':row_diff,'incremental':result.get('incremental')})
     return {'source':logical,'status':'ACTIVE','message':'Yeni kaynak kalite ve bütünlük kontrollerinden geçerek ACTIVE yapıldı.','buildId':result.get('build_id'),'pending':item,'rowDiff':row_diff,'incremental':bool(result.get('incremental')),'retainedMb51':result.get('retainedMb51',0),'centralSourceWarning':central_warning}
 
+
+def auto_accept_pending_sources(cfg=None, pending=None):
+    """[5] Sessiz ACTIVE accept — deferred olmayan tüm adaylar."""
+    cfg = cfg or load_config()
+    if not revision_runtime.pending_auto_accept_enabled(cfg):
+        return []
+    items = pending if pending is not None else (cfg.get('_pending_source_updates') or source_pending_updates(force=False))
+    if not items:
+        return []
+    return revision_runtime.run_silent_active_accepts(
+        items, lambda logical, choice, actor: source_update_choice(logical, choice, actor),
+        actor='SYSTEM_AUTO_ACCEPT')
+
+
+def _control_bundle_csvs(control_id):
+    root = load_record_root()
+    header = materials = projects = None
+    for kind in ('header', 'materials', 'projects'):
+        path = record_visible_file(kind, control_id, root)
+        if not path or not path.is_file():
+            continue
+        try:
+            rows = _read_csv_dict(path)
+        except Exception:
+            continue
+        if kind == 'header':
+            header = rows[0] if rows else None
+        elif kind == 'materials':
+            materials = rows
+        else:
+            projects = rows
+    return header, materials, projects
+
+
+def try_auto_final_records(limit=20):
+    """[3] Tesis dışı: önceki karar + MB51 gerçekleşince otomatik kesin kayıt (yetkili+audit).
+
+    Ortak yazılabilir SQLite yok — COMMITTED bundle üzerinden.
+    """
+    cfg = load_config()
+    if not revision_runtime.auto_final_record_enabled(cfg):
+        return {'ok': True, 'skipped': 'disabled', 'written': []}
+    if not central_security.final_record_allowed_here(cfg):
+        return {'ok': False, 'skipped': 'not_authorized', 'written': []}
+    written = []
+    errors = []
+    with revision_runtime._AUTO_FINAL_LOCK:
+        try:
+            headers = record_header_rows(force=False)[:80]
+        except Exception as exc:
+            return {'ok': False, 'error': str(exc), 'written': []}
+        seen_res = set()
+        for h in headers:
+            if len(written) >= limit:
+                break
+            if revision_runtime.is_tesis_work(h.get('IsTuru')):
+                continue
+            res = str(h.get('RezervasyonNo') or '').strip()
+            cid = str(h.get('KontrolID') or '').strip()
+            if not res or not cid or res in seen_res:
+                continue
+            seen_res.add(res)
+            header0, materials0, projects0 = _control_bundle_csvs(cid)
+            if not header0 or not materials0:
+                continue
+            approved_rows = [r for r in materials0 if str(r.get('KalemKarari') or '').upper() == 'ONAYLA'
+                             and float(r.get('OnaylananMiktar') or r.get('Miktar') or 0) > 0]
+            if not approved_rows:
+                continue
+            realized = []
+            for row in approved_rows:
+                mat = str(row.get('MalzemeKodu') or '').strip()
+                approved = float(row.get('OnaylananMiktar') or row.get('Miktar') or 0)
+                rec = _mb51_reconcile(res, mat, approved, mb51_reconciliation.header_scope(header0, str(row.get('Birim') or '')))
+                if revision_runtime.mb51_realized(rec):
+                    realized.append((row, rec))
+            if not realized or len(realized) < len(approved_rows):
+                # Tüm onaylı kalemler gerçekleşmeden otomatik yazma yok (güvenlik).
+                continue
+            digest = hashlib.sha256('|'.join(f"{r.get('MalzemeKodu')}:{rec.get('actualQty')}:{rec.get('status')}" for r, rec in realized).encode()).hexdigest()[:16]
+            key = revision_runtime.build_auto_final_key(res, cid, digest)
+            if revision_runtime.auto_final_already_done(key):
+                continue
+            # Son kontrol zaten aynı MB51 özetini taşıyorsa atla
+            latest_status = str(header0.get('MB51MutabakatOzeti') or '')
+            if 'AUTO_FINAL' in str(header0.get('KayitIslemi') or '') and digest in latest_status:
+                revision_runtime.mark_auto_final_done(key)
+                continue
+            try:
+                balances = commitment_context(header0.get('HedefUY'), header0.get('HedefDepo'))
+                if not balances.get('verified'):
+                    errors.append({'reservationNo': res, 'error': 'balance_unverified'})
+                    continue
+                payload_header = dict(header0)
+                payload_header['BalanceDigest'] = balances.get('balanceDigest')
+                payload_header['KayitIslemi'] = 'OTOMATIK_KESIN_KAYIT_MB51'
+                payload_header['SAPOnayiDegildir'] = 'EVET'
+                payload_header['Uyarilar'] = (str(payload_header.get('Uyarilar') or '') + ' | Otomatik kesin kayıt (MB51 gerçekleşme)').strip(' |')
+                # Capacity digests: yeniden hesapla
+                materials_payload = []
+                for row, rec in realized:
+                    m = dict(row)
+                    m['MB51FiiliMiktar'] = rec.get('actualQty')
+                    m['MB51MutabakatDurumu'] = rec.get('status')
+                    m['KontrolNotu'] = (str(m.get('KontrolNotu') or '') + ' AUTO_FINAL').strip()
+                    materials_payload.append(m)
+                # Diğer kalemler (onaylama/beklet) korunur
+                other = [dict(r) for r in materials0 if str(r.get('MalzemeKodu') or '').strip() not in {str(x.get('MalzemeKodu')) for x, _ in realized}]
+                materials_payload.extend(other)
+                capacity_request = capacity_request_from_control({'header': payload_header, 'materials': materials_payload, 'projects': projects0 or []})
+                if capacity_request:
+                    checked = capacity_context(capacity_request)
+                    payload_header['CapacityRequestDigest'] = checked.get('requestDigest')
+                    payload_header['SourceCoverageDigest'] = checked.get('coverageDigest')
+                    if not checked.get('eligible'):
+                        errors.append({'reservationNo': res, 'error': 'capacity_ineligible'})
+                        continue
+                result = save_control_payload(
+                    {'header': payload_header, 'materials': materials_payload, 'projects': projects0 or []},
+                    allow_repeat=True,
+                    expected_previous_control_id=cid,
+                )
+                revision_runtime.mark_auto_final_done(key)
+                DATA_ARCH_V2.audit('CONTROL', 'AUTO_FINAL_RECORD', user_context().get('login') or 'SYSTEM', 'CONTROL',
+                                  result.get('controlId'), {'reservationNo': res, 'previousControlId': cid, 'digest': digest})
+                written.append(result)
+                d = _notif_state()
+                _notif_upsert(d, 'AUTO-FINAL-DONE-' + str(result.get('controlId')),
+                              'Otomatik kesin kayıt yazıldı',
+                              f"{res}: MB51 gerçekleşme sonrası {result.get('controlId')} oluşturuldu.",
+                              'INFO', 'MB51',
+                              {'reservationNo': res, 'controlId': result.get('controlId'), 'previousControlId': cid},
+                              [{'label': 'Kayıtlar', 'action': 'OPEN_RECORDS'}])
+                _save_notif_state(d)
+            except Exception as exc:
+                errors.append({'reservationNo': res, 'error': str(exc)})
+                try:
+                    DATA_ARCH_V2.audit('CONTROL', 'AUTO_FINAL_RECORD_FAILED', 'SYSTEM', 'CONTROL', cid, {'reservationNo': res, 'error': str(exc)})
+                except Exception:
+                    pass
+    return {'ok': True, 'written': written, 'errors': errors}
 
 
 def _read_text_auto(path: Path):
@@ -4355,7 +4516,14 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:return self._send_json({'ok':False,'error':str(exc)},500)
         if route == '/api/notifications':
             try:
-                items=build_notifications();return self._send_json({'ok':True,'items':items,'openCount':sum(1 for x in items if x.get('status')=='OPEN'),'criticalCount':sum(1 for x in items if x.get('status')=='OPEN' and x.get('severity')=='CRITICAL'),'warningCount':sum(1 for x in items if x.get('status')=='OPEN' and x.get('severity')=='WARNING'),'infoCount':sum(1 for x in items if x.get('status')=='OPEN' and x.get('severity')=='INFO')})
+                q=urllib.parse.parse_qs(parsed.query)
+                force_mb51=str((q.get('force') or ['0'])[0]).lower() in ('1','true','yes')
+                items=build_notifications(force_mb51=force_mb51)
+                return self._send_json({'ok':True,'items':items,'openCount':sum(1 for x in items if x.get('status')=='OPEN'),'criticalCount':sum(1 for x in items if x.get('status')=='OPEN' and x.get('severity')=='CRITICAL'),'warningCount':sum(1 for x in items if x.get('status')=='OPEN' and x.get('severity')=='WARNING'),'infoCount':sum(1 for x in items if x.get('status')=='OPEN' and x.get('severity')=='INFO'),'mb51Lazy':True})
+            except Exception as exc:return self._send_json({'ok':False,'error':str(exc)},500)
+        if route == '/api/auto-final-record/run':
+            try:
+                return self._send_json({'ok':True,**try_auto_final_records()})
             except Exception as exc:return self._send_json({'ok':False,'error':str(exc)},500)
         if route == '/api/tesis-projects':
             try:return self._send_json({'ok':True,**load_manual_tesis_projects()})
@@ -4566,25 +4734,71 @@ class Handler(BaseHTTPRequestHandler):
         if route == '/api/files':
             q=urllib.parse.parse_qs(parsed.query)
             force=str((q.get('refresh') or ['0'])[0]).lower() in ('1','true','yes')
+            monitor=str((q.get('monitor') or ['0'])[0]).lower() in ('1','true','yes')
+            light=str((q.get('light') or ['0'])[0]).lower() in ('1','true','yes') or monitor
+            auto_accept_results=[]
+            # [9] monitor: stamp-only — damga aynıysa full UNC refresh yok
+            if monitor:
+                cfg0, sources0, missing0 = source_snapshot_cached(force=False)
+                unchanged, stamp = revision_runtime.monitor_stamp_unchanged(sources0)
+                if unchanged:
+                    engine0=_engine_snapshot(sources0)
+                    access0=source_access_state(cfg0,sources0,engine0)
+                    health0=DATA_ARCH_V2.health(engine0,engine0.get('quality') or {}, sources0 or {}) if not light else {'sources':[]}
+                    warn_h=float(cfg0.get('freshness_warn_hours') or revision_runtime.SOURCE_FRESHNESS_WARN_HOURS)
+                    return self._send_json({
+                        'ok': True, 'monitor': True, 'stampOnly': True, 'monitorStamp': stamp,
+                        'sources': sources0, 'missing': missing0,
+                        'roots': cfg0.get('roots', []), 'externalRoot': cfg0.get('external_root', ''),
+                        'bundledRoot': str(BUNDLED_ROOT), 'recursive': bool(cfg0.get('recursive', False)),
+                        'scanMaxDepth': revision_runtime.scan_max_depth(cfg0),
+                        'configError': cfg0.get('_config_error', ''),
+                        'scanDiagnostics': [], 'scanCount': cfg0.get('_scan_count', 0),
+                        'sourceMode': 'CSV_TO_PARQUET_INDEXED', 'dataEngine': engine0,
+                        'sourceVersions': {}, 'engineRefreshError': '',
+                        'pendingSourceUpdates': cfg0.get('_pending_source_updates', []),
+                        'sourceHealth': health0,
+                        'freshnessWarnings': revision_runtime.freshness_warnings(health0, warn_h),
+                        'sourceAccess': access0, 'recordSecurity': record_security_status(),
+                        'autoAccept': [], 'silentActiveAccept': revision_runtime.pending_auto_accept_enabled(cfg0),
+                    })
+                # Damga değişti → gerçek tarama
+                force=True
             cfg, sources, missing = source_snapshot_cached(force=force)
-            source_versions=DATA_ARCH_V2.observe_sources(sources or {})
+            source_versions={} if light else DATA_ARCH_V2.observe_sources(sources or {})
             engine=_engine_snapshot(sources)
-            if force and not (q.get('monitor') or []) and not missing and not engine.get('ready'):
+            if force and not monitor and not missing and not engine.get('ready'):
                 if _start_engine_rebuild_background(sources):
                     engine={**engine,'building':True,'status':'REBUILDING'}
             engine_refresh_error=''
-            # FIX7: Yeni kaynak veri kullanıcının onayı olmadan ACTIVE yapılmaz.
-            # refresh yalnız tarar ve pendingSourceUpdates üretir; ağır build ancak
-            # 'Yeni veriye güncelle' seçeneği ile başlatılır.
+            # [5] Sessiz ACTIVE accept (Halit kilidi) — pending varsa otomatik
+            if force and not monitor and revision_runtime.pending_auto_accept_enabled(cfg):
+                pending=list(cfg.get('_pending_source_updates') or [])
+                if pending:
+                    auto_accept_results=auto_accept_pending_sources(cfg, pending)
+                    if any(x.get('ok') for x in auto_accept_results):
+                        cfg, sources, missing = source_snapshot_cached(force=True)
+                        engine=_engine_snapshot(sources)
+                        if not light:
+                            source_versions=DATA_ARCH_V2.observe_sources(sources or {})
             source_health=DATA_ARCH_V2.health(engine,engine.get('quality') or {}, sources or {})
+            warn_h=float(cfg.get('freshness_warn_hours') or revision_runtime.SOURCE_FRESHNESS_WARN_HOURS)
+            access=source_access_state(cfg,sources,engine)
+            try:
+                print(access.get('diagnosis',{}).get('logLine') or '', flush=True)
+            except Exception:
+                pass
             return self._send_json({
                 'ok': True,
+                'monitor': monitor,
+                'stampOnly': False,
                 'sources': sources,
                 'missing': missing,
                 'roots': cfg.get('roots', []),
                 'externalRoot': cfg.get('external_root', ''),
                 'bundledRoot': str(BUNDLED_ROOT),
                 'recursive': bool(cfg.get('recursive', False)),
+                'scanMaxDepth': revision_runtime.scan_max_depth(cfg),
                 'configError': cfg.get('_config_error', ''),
                 'scanDiagnostics': cfg.get('_scan_diagnostics', []),
                 'scanCount': cfg.get('_scan_count', 0),
@@ -4594,8 +4808,12 @@ class Handler(BaseHTTPRequestHandler):
                 'engineRefreshError': engine_refresh_error,
                 'pendingSourceUpdates': cfg.get('_pending_source_updates', []),
                 'sourceHealth': source_health,
-                'sourceAccess': source_access_state(cfg,sources,engine),
-                'recordSecurity': record_security_status()
+                'freshnessWarnings': revision_runtime.freshness_warnings(source_health, warn_h),
+                'sourceAccess': access,
+                'recordSecurity': record_security_status(),
+                'autoAccept': auto_accept_results,
+                'silentActiveAccept': revision_runtime.pending_auto_accept_enabled(cfg),
+                'releaseId': RELEASE_ID or cfg.get('release_id') or '',
             })
         if route == '/api/file':
             q=urllib.parse.parse_qs(parsed.query);src=(q.get('source') or [''])[0]
@@ -4657,11 +4875,25 @@ def _integrity_scheduler():
             engine=_engine_snapshot()
             if engine.get('usable'):
                 DATA_ARCH_V2.record_index_build({**engine,'status':'ACTIVE','startedAt':engine.get('builtAt',''),'finishedAt':engine.get('builtAt','')})
+                # [12] integrity TTL zaten verify_active_engine içinde (günlük)
                 DATA_ARCH_V2.run_integrity_due(engine,force=False)
         except Exception as exc:
             try:DATA_ARCH_V2.audit('INTEGRITY','SCHEDULE_ERROR','SYSTEM','ENGINE','ACTIVE',{'error':str(exc)})
             except Exception:pass
         time.sleep(3600)
+
+
+def _auto_final_scheduler():
+    """[3] Tesis dışı otomatik kesin kayıt — periyodik tarama."""
+    time.sleep(12)
+    while True:
+        try:
+            if revision_runtime.auto_final_record_enabled(load_config()):
+                try_auto_final_records(limit=10)
+        except Exception as exc:
+            try:DATA_ARCH_V2.audit('CONTROL','AUTO_FINAL_SCHEDULE_ERROR','SYSTEM','CONTROL','AUTO',{'error':str(exc)})
+            except Exception:pass
+        time.sleep(300)
 
 
 class TalepHTTPServer(ThreadingHTTPServer):
@@ -4689,6 +4921,7 @@ def main():
         threading.Thread(target=open_browser, args=(selected_port,), daemon=True).start()
 
     threading.Thread(target=_integrity_scheduler,name='talep-integrity-scheduler',daemon=True).start()
+    threading.Thread(target=_auto_final_scheduler,name='talep-auto-final',daemon=True).start()
     threading.Thread(target=_initial_engine_prepare,name='talep-initial-index',daemon=True).start()
 
     try:user_context(audit=True)

@@ -314,45 +314,48 @@ function loadSources(options={}){
   return sourceLoadInFlight;
 }
 async function loadSourcesOnce({initial=false,silent=false,forceScan=false}={}){
+  // [1] Literal full load — progress hangi kaynağın güncellendiğini gösterir.
   invalidateDecisionEvidence('Kaynaklar yenileniyor.');
   state.meta.sourceAccess={...state.meta.sourceAccess,current:false,reason:'Kaynaklar yenileniyor.'};
   state.diagnostics=[];kesifContextLoaded.clear();
   if(location.protocol==='file:')throw new Error('Bu paket index.html dosyasına çift tıklanarak çalıştırılmaz. BASLAT.vbs kullanın.');
-  const snap=await fetchSnapshot(forceScan);state.meta.roots=snap.roots||[];state.meta.externalRoot=snap.externalRoot||'';state.meta.bundledRoot=snap.bundledRoot||'';state.meta.dataEngine=snap.dataEngine||{};state.meta.sourceHealth=snap.sourceHealth||{};state.meta.pendingSourceUpdates=snap.pendingSourceUpdates||[];
+  if(!silent){document.body.classList.add('booting');setLoading(8,'Kaynak taraması…','Ağ/merkezi kaynak damgaları okunuyor.');}
+  const snap=await fetchSnapshot(forceScan);state.meta.roots=snap.roots||[];state.meta.externalRoot=snap.externalRoot||'';state.meta.bundledRoot=snap.bundledRoot||'';state.meta.dataEngine=snap.dataEngine||{};state.meta.sourceHealth=snap.sourceHealth||{};state.meta.pendingSourceUpdates=snap.pendingSourceUpdates||[];state.meta.freshnessWarnings=snap.freshnessWarnings||[];state.meta.releaseId=snap.releaseId||snap.sourceAccess?.diagnosis?.releaseId||'';state.meta.silentActiveAccept=snap.silentActiveAccept!==false;
+  if(Array.isArray(snap.autoAccept)&&snap.autoAccept.length){
+    const ok=snap.autoAccept.filter(x=>x.ok).map(x=>x.source);const bad=snap.autoAccept.filter(x=>!x.ok);
+    if(ok.length)toast(`Otomatik ACTIVE: ${ok.join(', ')}`,'success',5200);
+    bad.forEach(x=>toast(`${x.source} otomatik kabul hatası: ${x.error||'?'}`,'warn',6500));
+  }
   applyRecordSecurity(snap.recordSecurity);
   const entries=Object.entries(snap.sources||{});
-  const prepared=await Promise.all(entries.map(async ([src,info])=>{
-    if(!info)return {src,file:{status:'missing',name:'',path:'',origin:''},book:null,
-      diagnostics:[{level:'bad',text:`${FRIENDLY[src]} kaynağı bulunamadı. Bu kaynağa bağlı kontroller kullanılamaz.`}]};
+  const total=Math.max(1,entries.length);let done=0;const prepared=[];
+  for(const [src,info] of entries){
+    done+=1;const pct=12+Math.round((done/total)*70);
+    if(!silent)setLoading(pct,`${FRIENDLY[src]||src} yükleniyor…`,`${done}/${total} kaynak · full load`);
+    if(!info){prepared.push({src,file:{status:'missing',name:'',path:'',origin:''},book:null,diagnostics:[{level:'bad',text:`${FRIENDLY[src]} kaynağı bulunamadı. Bu kaynağa bağlı kontroller kullanılamaz.`}]});continue}
     const file={...info,status:'ok'};
-    if(src==='MB51'||src==='KESIFLER')return {src,file,book:{},diagnostics:[]};
+    if(src==='MB51'||src==='KESIFLER'){prepared.push({src,file,book:{},diagnostics:[]});continue}
     const files=(info.files||[]).map(f=>[f.path,f.name,f.size,f.lastModified,f.role,f.headerRow]);
     const fingerprint=JSON.stringify([CACHE_VERSION,src,info.path,info.size,info.lastModified,files]);
     try{
-      if(sourceBookFingerprints.get(src)===fingerprint&&state.books[src]){
-        return {src,file,book:state.books[src],fingerprint,diagnostics:[]};
-      }
+      if(sourceBookFingerprints.get(src)===fingerprint&&state.books[src]){prepared.push({src,file,book:state.books[src],fingerprint,diagnostics:[]});continue}
       const cached=await dbGet(fingerprint).catch(()=>null);
       const book=cached?.book||await parseCsvSourceBook(src,info);
       if(!cached?.book&&Number(info.size||0)<=25*1024*1024)await dbSet(fingerprint,{book}).catch(()=>{});
-      return {src,file,book,fingerprint,diagnostics:[]};
-    }catch(e){
-      return {src,file:{...file,status:'bad'},book:null,diagnostics:[{level:'bad',text:`${src}: ${e.message}`,source:src}]};
-    }
-  }));
+      prepared.push({src,file,book,fingerprint,diagnostics:[]});
+    }catch(e){prepared.push({src,file:{...file,status:'bad'},book:null,diagnostics:[{level:'bad',text:`${src}: ${e.message}`,source:src}]})}
+  }
+  if(!silent)setLoading(86,'Muaf listesi ve indeksler…','Karar modeli hazırlanıyor.');
   await loadExemptions();
   for(const {src,file,book,fingerprint,diagnostics} of prepared){
-    state.files[src]=file;
-    state.books[src]=book;
-    if(fingerprint)sourceBookFingerprints.set(src,fingerprint);
-    else sourceBookFingerprints.delete(src);
+    state.files[src]=file;state.books[src]=book;
+    if(fingerprint)sourceBookFingerprints.set(src,fingerprint);else sourceBookFingerprints.delete(src);
     state.diagnostics.push(...diagnostics);
-    if(file.status==='ok'&&src!=='MB51'&&src!=='KESIFLER'){
-      for(const issue of validateSource(src))state.diagnostics.push({level:'bad',text:issue,source:src});
-    }
+    if(file.status==='ok'&&src!=='MB51'&&src!=='KESIFLER'){for(const issue of validateSource(src))state.diagnostics.push({level:'bad',text:issue,source:src})}
   }
-  if(snap.configError)state.diagnostics.push({level:'warn',text:snap.configError});if(snap.engineRefreshError)state.diagnostics.push({level:'bad',text:'İndeks/Parquet yenileme hatası: '+snap.engineRefreshError});if(snap.dataEngine?.building)state.diagnostics.push({level:'warn',text:'Büyük veri indeksi arka planda güncelleniyor. Mevcut sağlıklı indeks kullanılmaya devam ediyor.'});else if(snap.dataEngine&&!snap.dataEngine.ready)state.diagnostics.push({level:'warn',text:'Parquet/index veri motoru güncel değil. Yeni kaynak algılandıysa kullanıcı onayı bekleniyor.'});
+  if(snap.configError)state.diagnostics.push({level:'warn',text:snap.configError});if(snap.engineRefreshError)state.diagnostics.push({level:'bad',text:'İndeks/Parquet yenileme hatası: '+snap.engineRefreshError});if(snap.dataEngine?.building)state.diagnostics.push({level:'warn',text:'Büyük veri indeksi arka planda güncelleniyor. Mevcut sağlıklı indeks kullanılıyor.'});else if(snap.dataEngine&&!snap.dataEngine.ready)state.diagnostics.push({level:'warn',text:'Parquet/index veri motoru güncel değil.'});
   for(const d of snap.scanDiagnostics||[])state.diagnostics.push({level:d.level||'warn',text:d.text||''});
+  for(const w of state.meta.freshnessWarnings||[])state.diagnostics.push({level:'warn',text:w.message||`${w.source} güncelliği`,source:w.source});
   normalizeData();buildIndexes();validateData();
   state.meta.loadedSnapshotId=Object.values(state.files).every(f=>f.status==='ok')?(snap.sourceAccess?.snapshotId||''):'';
   applySourceAccess(Object.values(state.files).some(f=>f.status==='bad'||f.status==='missing')?{...snap.sourceAccess,current:false,reason:'Yüklenemeyen kaynaklar: '+Object.entries(state.files).filter(([,f])=>f.status==='bad'||f.status==='missing').map(([src])=>src).join(', ')+'. Ayrıntılar kaynak tanılamasında.'}:snap.sourceAccess);
@@ -366,9 +369,8 @@ async function loadSourcesOnce({initial=false,silent=false,forceScan=false}={}){
   if(state.ui.mode==='reservation'&&state.ui.reservationNo)renderReservation(state.ui.reservationNo);
   else if(state.ui.mode==='manual'&&state.ui.manualReady)renderManualWorkspace();
   state.lastSnapshot=Object.fromEntries(entries.map(([s,i])=>[s,i?`${i.size}|${i.lastModified}|${(i.files||[]).map(f=>`${f.name}:${f.lastModified}:${f.role}`).join(',')}`:'missing']));
-  if(initial&&!silent){setLoading(96,'Karar destek modeli hazırlanıyor…','Parquet + indeksli veri motoru ve karar ilişkileri hazırlanıyor.');setTimeout(()=>{setLoading(100,'Veriler hazır','Karar destek ekranı açılıyor.');setTimeout(hideLoading,180)},120)}
+  if(!silent){setLoading(96,'Karar destek modeli hazır…','Full load tamamlandı.');setTimeout(()=>{setLoading(100,'Veriler hazır','Karar destek ekranı açılıyor.');setTimeout(hideLoading,180)},120)}
 }
-
 function workCode(v){const n=norm(v);if(n==='t'||n.includes('tesis'))return'T';if(n==='b'||n.includes('bakim'))return'B';if(n==='k'||n.includes('ket'))return'K';if(n==='l'||n.includes('led'))return'L';return String(v||'').trim().toUpperCase()}
 function isActive(v){const n=norm(v);return !v||['evet','x','1','aktif','true'].includes(n)}
 
@@ -775,11 +777,16 @@ function formatBytes(n){n=Number(n)||0;if(n>=1024*1024*1024)return (n/1024/1024/
 function closeSourceUpdateModal(){const m=$('#sourceUpdateModal');if(m){m.hidden=true;m.setAttribute('aria-hidden','true')}sourceUpdateCurrent=null;document.body.classList.remove('modal-open')}
 function openSourceUpdateModal(item){if(!item)return;sourceUpdateCurrent=item;const m=$('#sourceUpdateModal');if(!m)return;m.hidden=false;m.setAttribute('aria-hidden','false');document.body.classList.add('modal-open');$('#sourceUpdateTitle').textContent=`${sourceUpdateLabel(item.source)} – Yeni kaynak verisi eklendi`;$('#sourceUpdateSubtitle').textContent='Yeni veri kalite kontrollerinden geçip siz onaylayana kadar mevcut sağlıklı ACTIVE veri kullanılmaya devam eder.';$('#sourceUpdateSummary').innerHTML=`<div><span>Mevcut kaynak</span><strong>${esc(item.oldName||'—')}</strong></div><div><span>Yeni kaynak</span><strong>${esc(item.newName||'—')}</strong></div><div><span>Mevcut boyut</span><strong>${formatBytes(item.oldSize)}</strong></div><div><span>Yeni boyut</span><strong>${formatBytes(item.newSize)}</strong></div><div><span>Mevcut tarih</span><strong>${esc(item.oldModified||'—')}</strong></div><div><span>Yeni tarih</span><strong>${esc(item.newModified||'—')}</strong></div>`;const det=$('#sourceUpdateDetails');if(det){det.hidden=true;det.textContent=`Aktif imza: ${item.activeDigest||'—'}\nYeni imza: ${item.candidateDigest||'—'}\nDosya sayısı: ${item.oldFileCount||0} → ${item.newFileCount||0}\n\n“Eski Veriyle Devam Et” seçilirse mevcut ACTIVE değişmez. “Yeni Veriye Güncelle” seçilirse yeni kaynak şema, bütünlük ve kalite kontrolünden geçer; CRITICAL hata halinde güncelleme reddedilir.`}}
 function scheduleSourceUpdateAlerts(items=[]){
+  // [5] Sessiz accept sunucuda; deferred kalanlar bilgi, modal zorunlu değil.
   for(const item of items){
     const key=String(item.source||'')+'|'+String(item.candidateDigest||'');
     if(item.deferred||sourceUpdateSeen.has(key))continue;
     sourceUpdateSeen.add(key);
-    toast(`${sourceUpdateLabel(item.source)} için yeni veri hazır. Kaynak durumundan inceleyebilirsiniz.`,'info',6500);
+    if(state.meta.silentActiveAccept!==false && !item.deferred){
+      toast(`${sourceUpdateLabel(item.source)} otomatik ACTIVE kuyruğunda.`,'info',4500);
+      continue;
+    }
+    toast(`${sourceUpdateLabel(item.source)} için yeni veri hazır.`,'info',6500);
   }
 }
 async function pollSourceUpdateStatus(){if(document.hidden||sourceLoadInFlight)return;const epoch=state.meta.evidenceEpoch||0;try{
@@ -812,7 +819,7 @@ async function sourceUpdateChoice(choice){const item=sourceUpdateCurrent;if(!ite
   }catch(e){toast('Kaynak güncellenemedi: '+e.message,'error',8000)}
   finally{sourceUpdateInFlight=false}
 }
-async function selectSourceFile(source){const buttons=$$(`.source-change-btn[data-source="${source}"],.dc-source-change[data-source="${source}"]`);buttons.forEach(b=>b.disabled=true);try{const data=await fetchApiJson('/api/source-select-file',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source})},330000);if(data.cancelled)return;toast(`${sourceUpdateLabel(source)} için yeni kaynak dosyası seçildi. Onay bekliyor.`,'warn',6500);await loadSources({silent:true,forceScan:true});const item=(state.meta.pendingSourceUpdates||[]).find(x=>x.source===source);if(item)openSourceUpdateModal(item);if($('#dataCenterView')?.classList.contains('active'))await loadDataCenter()}catch(e){toast('Kaynak dosyası seçilemedi: '+e.message,'error',7000)}finally{buttons.forEach(b=>b.disabled=false)}}
+async function selectSourceFile(source){const buttons=$$(`.source-change-btn[data-source="${source}"],.dc-source-change[data-source="${source}"]`);buttons.forEach(b=>b.disabled=true);try{const data=await fetchApiJson('/api/source-select-file',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source})},330000);if(data.cancelled)return;toast(`${sourceUpdateLabel(source)} için yeni kaynak seçildi; sessiz ACTIVE accept uygulanacak.`,'info',6500);await loadSources({silent:true,forceScan:true});const item=(state.meta.pendingSourceUpdates||[]).find(x=>x.source===source);if(item&&state.meta.silentActiveAccept===false)openSourceUpdateModal(item);if($('#dataCenterView')?.classList.contains('active'))await loadDataCenter()}catch(e){toast('Kaynak dosyası seçilemedi: '+e.message,'error',7000)}finally{buttons.forEach(b=>b.disabled=false)}}
 function bindSourceHealthActions(root=document){root.querySelectorAll?.('.source-change-btn').forEach(b=>b.onclick=()=>selectSourceFile(b.dataset.source));root.querySelectorAll?.('.source-pending-review').forEach(b=>b.onclick=()=>{const item=(state.meta.pendingSourceUpdates||[]).find(x=>x.source===b.dataset.source);if(item)openSourceUpdateModal(item)})}
 function renderCommon(){
   const health=$('#dataHealth');
@@ -820,7 +827,11 @@ function renderCommon(){
     const healthItems=state.meta.sourceHealth?.sources||[];const hmap=new Map(healthItems.map(x=>[String(x.source||'').toUpperCase(),x]));
     const pendingMap=new Map((state.meta.pendingSourceUpdates||[]).map(x=>[String(x.source||'').toUpperCase(),x]));
     const rows=['ZMM048','MB51','MB52','ZMM098','TESIS','KET','BAKIM','LED'].map(src=>{const h=hmap.get(src)||(['TESIS','KET','BAKIM','LED'].includes(src)?(hmap.get('KESIFLER')||{}):{}),level=String(h.health||(!state.files[src]&&['ZMM048','MB51','MB52','ZMM098'].includes(src)?'CRITICAL':'NORMAL')).toUpperCase(),p=pendingMap.get(src);return `<tr><td><strong>${esc(FRIENDLY[src]||src)}</strong></td><td class="health-state-cell"><span class="health-state-dot normal ${level==='NORMAL'?'on':'off'}">${level==='NORMAL'?'Normal':'—'}</span></td><td class="health-state-cell"><span class="health-state-dot warning ${level==='WARNING'?'on':'off'}">${level==='WARNING'?'Uyarı':'—'}</span></td><td class="health-state-cell"><span class="health-state-dot critical ${level==='CRITICAL'?'on':'off'}">${level==='CRITICAL'?'Kritik':'—'}</span></td><td>${h.age_hours!=null?Number(h.age_hours).toFixed(1)+' sa':'—'}</td><td>${p?`<button class="dc-pending-btn source-pending-review" data-source="${esc(src)}" type="button">Yeni veri bekliyor</button>`:'—'}</td><td><button class="source-health-action source-change-btn" data-source="${esc(src)}" type="button">Kaynak Dosyasını Değiştir</button></td></tr>`}).join('');
-    health.innerHTML=`${state.meta.sourceAccess?.current?'':`<div class="inline-error"><strong>Salt okunur görünüm</strong> · ${esc(state.meta.sourceAccess?.reason||'Kaynak durumu doğrulanamadı.')} Son yerel veriler güncel olmayabilir.</div>`}${state.meta.sourceAccess?.current&&state.meta.sourceAccess?.networkNote?`<div class="inline-warn"><strong>Merkezi kayıt</strong> · ${esc(state.meta.sourceAccess.networkNote)}</div>`:''}<div class="source-health-inline"><div class="source-health-inline-head"><strong>Kaynak Sağlığı</strong><span>Normal / Uyarı / Kritik durumları ayrı gösterilir. Yeni veri kullanıcı onayı olmadan ACTIVE olmaz. Değişiklik yokken 0-Database / yerel indeks kullanılır.</span></div><div class="table-wrap"><table><thead><tr><th>Kaynak</th><th>Normal</th><th>Uyarı</th><th>Kritik</th><th>Veri Yaşı</th><th>Yeni Veri</th><th>İşlem</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+    const diag=state.meta.sourceAccess?.diagnosis||{};
+    const fresh=(state.meta.freshnessWarnings||[]).map(w=>`<div class="inline-warn"><strong>Güncellik</strong> · ${esc(w.message||'')}</div>`).join('');
+    const diagBlock=!state.meta.sourceAccess?.current?`<div class="inline-error"><strong>Salt okunur görünüm</strong> · ${esc(state.meta.sourceAccess?.reason||'Kaynak durumu doğrulanamadı.')}<div class="source-access-diag" style="margin-top:.35rem;font-size:.92em;opacity:.95"><code>${esc(diag.reasonCode||'READONLY')}</code> · eksik: ${esc((diag.missing||[]).join(', ')||'—')} · motor: ${esc(String(diag.dataEngine?.status||'—'))}/usable=${diag.dataEngine?.usable?'1':'0'}/building=${diag.dataEngine?.building?'1':'0'} · sürüm: ${esc(diag.appVersion||state.meta.serviceVersion||'—')} · release: ${esc(diag.releaseId||state.meta.releaseId||'—')}</div></div>`:'';
+    const net=state.meta.sourceAccess?.current&&state.meta.sourceAccess?.networkNote?`<div class="inline-warn"><strong>Merkezi kayıt</strong> · ${esc(state.meta.sourceAccess.networkNote)}</div>`:'';
+    health.innerHTML=`${diagBlock}${fresh}${net}<div class="source-health-inline"><div class="source-health-inline-head"><strong>Kaynak Sağlığı</strong><span>24s üzeri yalnız uyarıdır (kilit değil). Yeni adaylar sessiz ACTIVE accept ile alınır; manuel Verileri Yenile de çalışır. Değişiklik yokken 0-Database / yerel indeks.</span></div><div class="table-wrap"><table><thead><tr><th>Kaynak</th><th>Normal</th><th>Uyarı</th><th>Kritik</th><th>Veri Yaşı</th><th>Yeni Veri</th><th>İşlem</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
     bindSourceHealthActions(health);
   }
 
@@ -1909,7 +1920,7 @@ async function runCheck(){
 }
 
 async function silentRefresh(){if(Date.now()-lastActivity<60000)return;try{const snap=await fetchSnapshot(true);const next=Object.fromEntries(Object.entries(snap.sources||{}).map(([s,i])=>[s,i?`${i.size}|${i.lastModified}|${(i.files||[]).map(f=>`${f.name}:${f.lastModified}:${f.role}`).join(',')}`:'missing']));const changed=SOURCES.some(s=>next[s]!==state.lastSnapshot[s]);if(changed){await loadSources({silent:true});toast('Değişen veri kaynakları yenilendi.')}lastActivity=Date.now()}catch(e){console.warn('Otomatik yenileme:',e)}}
-let lastActivity=Date.now();['mousemove','keydown','click','scroll','touchstart'].forEach(e=>document.addEventListener(e,()=>lastActivity=Date.now(),{passive:true}));setInterval(silentRefresh,10000);
+let lastActivity=Date.now();['mousemove','keydown','click','scroll','touchstart'].forEach(e=>document.addEventListener(e,()=>lastActivity=Date.now(),{passive:true}));setInterval(silentRefresh,90000);
 
 
 function materialInfoForManual(code,sourceUY=''){
@@ -3270,7 +3281,7 @@ function activateWorkView(code,depot=''){
   const view=Object.entries(WORK_VIEW_CODES).find(([,v])=>v===code)?.[0];const nav=view?document.querySelector(`.nav-item[data-view="${view}"]`):null;if(nav){nav.click();setTimeout(()=>{if(depot)workOpsSelectDepot(code,depot)},350)}
 }
 function navigateNotificationAction(action,dataset={}){
-  const a=String(action||'').toUpperCase();closeNotificationDrawer();if(a==='OPEN_DATA_CENTER'){showDataCenter();setDcTab('health');return}if(a==='OPEN_RECORDS'){showControlRecords();return}if(a==='OPEN_TESIS'){activateWorkView('T',dataset.depot||'');return}if(a==='OPEN_WORK'){activateWorkView(dataset.workCode||'',dataset.depot||'');return}
+  const a=String(action||'').toUpperCase();closeNotificationDrawer();if(a==='OPEN_DATA_CENTER'){showDataCenter();setDcTab('health');return}if(a==='OPEN_RECORDS'){showControlRecords();return}if(a==='OPEN_TESIS'){activateWorkView('T',dataset.depot||'');if(dataset.reservationNo){try{setControlMode('reservation');const inp=$('#reservationSearch');if(inp)inp.value=dataset.reservationNo;renderReservation(dataset.reservationNo)}catch(_){}}return}if(a==='OPEN_WORK'){activateWorkView(dataset.workCode||'',dataset.depot||'');return}
 }
 
 function addNewProjectDiscoveryRow(row={}){
@@ -3380,7 +3391,7 @@ function renderDataPrepOutputs(){const body=$('#dcDataPrepOutputBody');if(!body)
 async function loadDataPrep(silent=false){try{const d=await fetchApiJson('/api/data-prep',{},120000);dataPrepState.templates=d.templates||[];dataPrepState.history=d.history||[];dataPrepState.outputRoot=d.outputRoot||'';if($('#dcDataPrepOutputRoot'))$('#dcDataPrepOutputRoot').textContent=dataPrepState.outputRoot||'—';renderDataPrepHistory();if(dataPrepState.selected.length)renderDataPrepSelections()}catch(e){if(!silent)toast('Veri Hazırla bilgileri yüklenemedi: '+e.message,'error')}}
 async function selectDataPrepExcel(){const b=$('#dcDataPrepSelectBtn');if(b)b.disabled=true;try{const d=await fetchApiJson('/api/data-prep/select-excel',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'},330000);if(d.cancelled)return;dataPrepState.templates=d.templates||dataPrepState.templates;dataPrepState.selected=d.items||[];dataPrepState.outputRoot=d.outputRoot||dataPrepState.outputRoot;if($('#dcDataPrepOutputRoot'))$('#dcDataPrepOutputRoot').textContent=dataPrepState.outputRoot||'—';renderDataPrepSelections();toast(`${dataPrepState.selected.length} Excel dosyası seçildi.`,'success')}catch(e){toast('Excel dosyaları seçilemedi: '+e.message,'error',7000)}finally{if(b)b.disabled=false}}
 async function convertDataPrep(){const items=[];$$('#dcDataPrepInputBody tr[data-prep-token]').forEach(tr=>items.push({token:tr.dataset.prepToken,sheet:tr.querySelector('.data-prep-sheet')?.value||'',source:tr.querySelector('.data-prep-source')?.value||''}));if(!items.length)return toast('Önce Excel dosyası seçin.','warn');if(items.some(item=>!item.source))return toast('Her Excel sayfası için kaynak türünü seçin.','warn');const b=$('#dcDataPrepConvertBtn');if(b){b.disabled=true;b.textContent='CSV Oluşturuluyor…'}try{const d=await fetchApiJson('/api/data-prep/convert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items})},600000);dataPrepState.outputs=d.files||[];dataPrepState.outputs.forEach(x=>x.batchId=d.batchId);renderDataPrepOutputs();toast(`${dataPrepState.outputs.length} kaynak CSV hazırlandı.`,'success',6500);await loadDataPrep(true)}catch(e){toast('CSV dönüşümü başarısız: '+e.message,'error',9000)}finally{if(b){b.disabled=false;b.textContent='CSV Oluştur'}}}
-async function stagePreparedCsv(btn){btn.disabled=true;try{const d=await fetchApiJson('/api/data-prep/stage-source',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({batchId:btn.dataset.batch,fileName:btn.dataset.file,source:btn.dataset.source})},180000);toast(`${sourceUpdateLabel(btn.dataset.source)} için hazırlanan CSV kaynak adayı oldu.`,'warn',6500);await loadSources({silent:true,forceScan:true});if(d.pending)openSourceUpdateModal(d.pending);else{const item=(state.meta.pendingSourceUpdates||[]).find(x=>x.source===btn.dataset.source);if(item)openSourceUpdateModal(item)}}catch(e){toast('Hazırlanan CSV kaynak olarak kullanılamadı: '+e.message,'error',8000)}finally{btn.disabled=false}}
+async function stagePreparedCsv(btn){btn.disabled=true;try{const d=await fetchApiJson('/api/data-prep/stage-source',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({batchId:btn.dataset.batch,fileName:btn.dataset.file,source:btn.dataset.source})},180000);toast(`${sourceUpdateLabel(btn.dataset.source)} hazırlandı; sessiz ACTIVE accept uygulanacak.`,'info',6500);await loadSources({silent:true,forceScan:true});if(state.meta.silentActiveAccept===false){if(d.pending)openSourceUpdateModal(d.pending);else{const item=(state.meta.pendingSourceUpdates||[]).find(x=>x.source===btn.dataset.source);if(item)openSourceUpdateModal(item)}}}catch(e){toast('Hazırlanan CSV kaynak olarak kullanılamadı: '+e.message,'error',8000)}finally{btn.disabled=false}}
 async function openDataPrepFolder(){try{const d=await fetchApiJson('/api/data-prep/open-folder',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'},30000);toast(`Çıktı klasörü açıldı: ${d.path||''}`,'success')}catch(e){toast('Çıktı klasörü açılamadı: '+e.message,'error')}}
 
 function renderDcSnapshots(){const source=$('#dcSnapshotSource')?.value||'';const rows=(dcState.snapshots||[]).filter(x=>!source||x.source===source);if($('#dcSnapshotsBody'))$('#dcSnapshotsBody').innerHTML=rows.map(x=>`<tr><td><code>${esc(x.snapshot_id)}</code></td><td>${esc(x.source)}</td><td>${dcFormatTime(x.report_time||x.created_at)}</td><td>${dcStatusBadge(x.status)}</td><td>${esc(x.layer)}</td><td title="${esc(x.file_hash||'')}"><code>${esc((x.file_hash||'').slice(0,12))}</code></td><td>${esc(x.file_name||'—')}</td></tr>`).join('')||'<tr><td colspan="7">Snapshot bulunamadı.</td></tr>'}
@@ -3531,17 +3542,18 @@ window.addEventListener('pageshow',()=>{closeSignalSent=false;sendHeartbeat()});
 (async function boot(){
   initNav();initSourceTableViews();initWorkOperationViews();initEvents();setControlMode(state.ui.mode);
   applySourceAccess({current:false,reason:'Kaynaklar arka planda doğrulanıyor.'});
-  hideLoading();
-  // Allow the workspace to paint before starting the source requests.
+  document.body.classList.add('booting');
+  setLoading(4,'Full load başlıyor…','Tüm kaynak verileri açılışta çekilecek.');
   await new Promise(resolve=>requestAnimationFrame(()=>setTimeout(resolve,0)));
   try{
-    await loadSources({silent:true});
+    await loadSources({initial:true,silent:false,forceScan:true});
   }catch(e){
     console.error(e);
     const msg=normalizeServiceError(e);
     applySourceAccess({current:false,reason:'Kaynaklar yüklenemedi: '+msg});
     state.diagnostics.push({level:'bad',text:msg});
     renderCommon();
+    showLoadingIssue(msg);
     toast(msg,'warn',7000);
   }
 })();
