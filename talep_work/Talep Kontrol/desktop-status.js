@@ -42,7 +42,10 @@
       if (previous !== next) dismissed = false;
       previous = next;
       if(sourceAccess?.current===false){
-        set('warning','Salt okunur görünüm',sourceAccess.reason||'Kaynak güncelliği doğrulanamadı. Verileri yenileyin.');
+        const d=sourceAccess.diagnosis||{};
+        const detail=[d.reasonCode, (d.missing||[]).length?('eksik:'+(d.missing||[]).join(',')): '', d.dataEngine?('motor:'+d.dataEngine.status):'']
+          .filter(Boolean).join(' · ');
+        set('warning','Salt okunur görünüm',(sourceAccess.reason||'Kaynak güncelliği doğrulanamadı.')+(detail?' ['+detail+']':''));
       } else if (!writes) {
         set('warning', 'Merkezi kayıt koruması etkin',
           status.recordSecurity?.reason || 'Bu Windows oturumu kesin kayıt için yetkili değil.');
@@ -56,7 +59,7 @@
       set('error','Bağlantı kesildi','Uygulama hizmeti yanıt vermiyor. Görüntülenen sonuçlar güncel olmayabilir; yeniden bağlanınca kontrolü tekrarlayın.');
     } finally { checking=false; }
   }
-  window.addEventListener('talep-source-access',e=>{sourceAccess=e.detail;dismissed=false;if(previous==='offline')return;if(sourceAccess?.current===false)set('warning','Salt okunur görünüm',sourceAccess.reason||'Kaynak güncelliği doğrulanamadı.');else checkHealth()});
+  window.addEventListener('talep-source-access',e=>{sourceAccess=e.detail;dismissed=false;if(previous==='offline')return;if(sourceAccess?.current===false){const d=sourceAccess.diagnosis||{};const detail=[d.reasonCode,(d.missing||[]).length?('eksik:'+(d.missing||[]).join(',')):''].filter(Boolean).join(' · ');set('warning','Salt okunur görünüm',(sourceAccess.reason||'Kaynak güncelliği doğrulanamadı.')+(detail?' ['+detail+']':''))}else checkHealth()});
   window.addEventListener('online', checkHealth);
   window.addEventListener('offline', checkHealth);
   checkHealth();

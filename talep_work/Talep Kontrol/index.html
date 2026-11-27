@@ -152,6 +152,16 @@
         </div>
       </header>
 
+      <!-- [6] Salt-okunur teşhis + [2] 24s uyarı host (önceden DOM'da yoktu; renderCommon bağlanıyordu) -->
+      <section id="sourceAccessBanner" class="source-access-banner" aria-live="polite"></section>
+      <details id="dataHealthDetails" class="source-health-details">
+        <summary>Kaynak sağlığı · teşhis · güncellik</summary>
+        <div id="dataHealth"></div>
+        <div id="diagnostics" class="diagnostics-panel"></div>
+        <div id="sourceCards" class="source-cards-inline" hidden></div>
+        <div id="fixedRoots" class="fixed-roots-inline" hidden></div>
+      </details>
+
       <section id="decisionView" class="view active">
         <div class="panel reservation-lookup-panel">
           <div class="control-mode-switch" role="tablist" aria-label="Kontrol yöntemi">

@@ -1409,6 +1409,12 @@ body.ui-reference-20260928 .sidebar-hover-zone{display:none!important}
 body.ui-reference-20260928 .app-menu-button.fix7-menu-button{display:none!important}
 body.ui-reference-20260928 #decisionView .data-health{display:block!important;margin:0 0 12px}
 .inline-error{margin:0 0 10px;padding:10px 12px;border:1px solid #efb8c0;border-left:4px solid #b32538;border-radius:10px;background:#fff0f2;color:#7a1d2c;font-size:12px}
+.source-access-banner{margin:0 18px 8px;padding:0}
+.source-access-banner:empty,.source-access-banner[hidden]{display:none}
+.source-access-diag{margin-top:.35rem;font-size:.92em;opacity:.95;font-family:ui-monospace,Consolas,monospace}
+.source-health-details{margin:0 18px 12px;padding:8px 12px;border:1px solid #e0e8f3;border-radius:12px;background:#f9fbfe}
+.source-health-details>summary{cursor:pointer;font-size:12px;font-weight:700;color:#17356b;list-style:inside}
+.diagnostics-panel{margin-top:8px;font-size:12px;color:#4a5d73}
 .inline-warn{margin:0 0 10px;padding:10px 12px;border:1px solid #f1d394;border-left:4px solid #a46000;border-radius:10px;background:#fff8e8;color:#7a4a00;font-size:12px}
 .source-health-inline{background:#fff;border:1px solid #e0e8f3;border-radius:14px;box-shadow:0 6px 18px rgba(32,63,103,.045);overflow:hidden}
 .source-health-inline-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #e8eef6;background:#f9fbfe}.source-health-inline-head strong{font-size:12px;color:#17356b}.source-health-inline-head span{font-size:9px;color:#708199}
