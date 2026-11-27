@@ -23,6 +23,10 @@ class CleanInstallArtifactsTests(unittest.TestCase):
         self.assertTrue(has("--clean-install"))
         self.assertTrue(has("Temiz kurulum"))
         self.assertTrue(has("WebView2") or has("Index"))
+        # 6.2.1 bug: taskkill Talep Kontrol* killed installer titled "Talep Kontrol Kurulum"
+        self.assertFalse(has("WINDOWTITLE eq Talep Kontrol*"))
+        self.assertTrue(has("WINDOWTITLE eq Talep Kontrol"))
+        self.assertTrue(has("IMAGENAME ne Talep_Kontrol.exe"))
 
     def test_docs_and_ps1_clean_switch(self):
         once = ONCE.read_text(encoding="utf-8")

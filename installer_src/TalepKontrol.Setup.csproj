@@ -5,8 +5,8 @@
     <RootNamespace>TalepKontrol</RootNamespace>
     <AssemblyName>Talep_Kontrol</AssemblyName>
     <AssemblyTitle>Talep Kontrol Kurulum</AssemblyTitle>
-    <AssemblyVersion>6.2.1.0</AssemblyVersion>
-    <FileVersion>6.2.1.0</FileVersion>
+    <AssemblyVersion>6.2.2.0</AssemblyVersion>
+    <FileVersion>6.2.2.0</FileVersion>
     <Nullable>disable</Nullable>
     <LangVersion>latest</LangVersion>
     <UseWindowsForms>true</UseWindowsForms>

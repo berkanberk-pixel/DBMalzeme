@@ -18,7 +18,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 
 [assembly: AssemblyTitle("Talep Kontrol Kurulum")]
-[assembly: AssemblyVersion("6.2.1.0")]
+[assembly: AssemblyVersion("6.2.2.0")]
 
 internal static class Art
 {
@@ -610,13 +610,15 @@ internal sealed class Setup : Form
 		}
 		Thread.Sleep(700);
 
-		// Window-title filter: START_GUI WebView penceresi "Talep Kontrol"
+		// START_GUI penceresi tam başlık "Talep Kontrol".
+		// ASLA "Talep Kontrol*" kullanma — kurulum exe başlığı "Talep Kontrol Kurulum"
+		// ve kendini taskkill ile öldürür (Halit: yüklerken kapanma).
 		try
 		{
 			var killTitle = new ProcessStartInfo
 			{
 				FileName = "taskkill",
-				Arguments = "/F /FI \"WINDOWTITLE eq Talep Kontrol*\"",
+				Arguments = "/F /FI \"WINDOWTITLE eq Talep Kontrol\" /FI \"IMAGENAME ne Talep_Kontrol.exe\"",
 				CreateNoWindow = true,
 				UseShellExecute = false,
 				RedirectStandardOutput = true,
@@ -627,6 +629,7 @@ internal sealed class Setup : Form
 		}
 		catch { }
 
+		var selfId = Process.GetCurrentProcess().Id;
 		var installFull = string.IsNullOrWhiteSpace(installDir) ? "" : Path.GetFullPath(installDir.TrimEnd('\\'));
 		foreach (var name in new[] { "python", "pythonw", "powershell", "pwsh", "msedgewebview2", "wscript", "cscript" })
 		{
@@ -637,16 +640,19 @@ internal sealed class Setup : Form
 			{
 				try
 				{
+					if (p.Id == selfId) { p.Dispose(); continue; }
 					string module = null;
 					try { module = p.MainModule?.FileName; } catch { }
 					string title = null;
 					try { title = p.MainWindowTitle; } catch { }
+					// Başlık: yalnız tam "Talep Kontrol" (Kurulum / diyaloglar hariç)
+					bool titleMatch = !string.IsNullOrEmpty(title) &&
+						string.Equals(title.Trim(), "Talep Kontrol", StringComparison.OrdinalIgnoreCase);
 					bool match =
 						(!string.IsNullOrEmpty(installFull) && !string.IsNullOrEmpty(module) &&
 							module.StartsWith(installFull + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
 						|| PathLooksLikeTalep(module)
-						|| (!string.IsNullOrEmpty(title) && title.IndexOf("Talep Kontrol", StringComparison.OrdinalIgnoreCase) >= 0);
-					// WebView2: yalnızca TalepKontrol kullanıcı veri yolu / başlık eşleşirse
+						|| titleMatch;
 					if (string.Equals(name, "msedgewebview2", StringComparison.OrdinalIgnoreCase) && !match)
 					{
 						p.Dispose();

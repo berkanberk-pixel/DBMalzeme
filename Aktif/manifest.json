@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "product": "Talep Kontrol",
-  "release_id": "talep-4b7f9c09bfea6c48",
-  "package": "Paketler/talep-4b7f9c09bfea6c48/TalepKontrol.zip",
-  "sha256": "4b7f9c09bfea6c48c2d7afd4adeb610307def4b2be79dc003470686cd26ebaa0",
-  "size_bytes": 56286842,
-  "published_utc": "2026-11-27T10:56:01.577111+00:00",
-  "notes": "v1.0.4-central-index: 0-Database/KAYNAK_INDEKS read-only source SQLite snapshot; first-boot seed; publish after local rebuild; fresher-wins; COMMITTED decisions unchanged; no shared writable SQLite"
+  "release_id": "talep-5718349d6d69a0f5",
+  "package": "Paketler/talep-5718349d6d69a0f5/TalepKontrol.zip",
+  "sha256": "5718349d6d69a0f57cc4622614e5868c33f6a655229ead0fdf6856fedcbbf56c",
+  "size_bytes": 56286846,
+  "published_utc": "2026-11-27T15:45:52.731922+00:00",
+  "notes": "v1.0.4-install-selfkill: Talep_Kontrol.exe 6.2.2 — taskkill no longer matches installer title Talep Kontrol Kurulum (was Talep Kontrol*); keep central-index package contents"
 }
