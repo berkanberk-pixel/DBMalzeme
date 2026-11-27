@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "product": "Talep Kontrol",
-  "release_id": "talep-5eab00471777f573",
-  "package": "Paketler/talep-5eab00471777f573/TalepKontrol.zip",
-  "sha256": "5eab00471777f573e8d7362db9d5c14024e7e6d750384c4cd1e01d1227551725",
-  "size_bytes": 56276451,
-  "published_utc": "2026-11-27T07:19:51.387879+00:00",
-  "notes": "v1.0.4 + [6] dataHealth DOM host (index.html)"
+  "release_id": "talep-613fa5a122b51bdb",
+  "package": "Paketler/talep-613fa5a122b51bdb/TalepKontrol.zip",
+  "sha256": "613fa5a122b51bdbfce5985c1473fb440b0e24375f9a8716497b6b692a0ec01c",
+  "size_bytes": 56276812,
+  "published_utc": "2026-11-27T07:43:24.745954+00:00",
+  "notes": "v1.0.4-boot-handoff: talep-ui-ready before UNC full load; launcher timeout 15m"
 }

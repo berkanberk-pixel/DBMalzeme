@@ -111,16 +111,31 @@ function setLoading(p,msg,detail=''){
   if(card){card.classList.remove('has-error');card.setAttribute('aria-busy',value>=100?'false':'true')}
   updateLoadingStages(value);updateLoadingEta(value);
 }
+// Launcher (START_GUI) waits for talep-ui-ready with a hard timeout. Full UNC
+// load can exceed that — hand off the native splash as soon as the HTML shell
+// paints; keep the in-page loading overlay for literal full load progress.
+let uiShellReadyPosted=false;
+function signalUiShellReady(){
+  if(uiShellReadyPosted)return;
+  uiShellReadyPosted=true;
+  try{window.chrome?.webview?.postMessage({type:'talep-ui-ready'})}catch(_){}
+}
 function showLoadingIssue(msg){
-  // Surface initial data errors to the native splash, which hides the HTML loader.
-  try{window.chrome?.webview?.postMessage({type:'talep-ui-boot-error',message:String(msg||'Veri yükleme hatası')})}catch(_){}
+  // Fatal to native splash only before handoff; after ready, keep in-page error.
+  if(!uiShellReadyPosted){
+    try{window.chrome?.webview?.postMessage({type:'talep-ui-boot-error',message:String(msg||'Veri yükleme hatası')})}catch(_){}
+  }
   const box=$('#loadingError'),card=$('#loadingCard');
   if(box){box.hidden=false;box.innerHTML=esc(msg).replace(/\n/g,'<br>')}
   if($('#loadingRetry'))$('#loadingRetry').hidden=false;
   if($('#loadingEta'))$('#loadingEta').textContent='Kontrol gerekli';
   if(card)card.classList.add('has-error');
 }
-function hideLoading(){document.body.classList.remove('booting');const s=$('#loadingScreen');if(s){s.classList.add('done');setTimeout(()=>s.remove(),420)}try{window.chrome?.webview?.postMessage({type:'talep-ui-ready'})}catch(_){}}
+function hideLoading(){
+  document.body.classList.remove('booting');
+  const s=$('#loadingScreen');if(s){s.classList.add('done');setTimeout(()=>s.remove(),420)}
+  signalUiShellReady();
+}
 
 const ALIAS={
  reservationNo:['rezervasyon','rezervasyonno','rezervasyonnumarasi'],itemNo:['nakilrezervasyonukalemno','rezervasyonkalemno','kalemno','kalem'],
@@ -3553,8 +3568,11 @@ window.addEventListener('pageshow',()=>{closeSignalSent=false;sendHeartbeat()});
   applySourceAccess({current:false,reason:'Kaynaklar arka planda doğrulanıyor.'});
   document.body.classList.add('booting');
   setLoading(4,'Full load başlıyor…','Tüm kaynak verileri açılışta çekilecek.');
+  // Native splash handoff NOW — do not wait for UNC/full load (Halit 5dk timeout).
   await new Promise(resolve=>requestAnimationFrame(()=>setTimeout(resolve,0)));
+  signalUiShellReady();
   try{
+    // [1] Literal full load continues under HTML progress after workspace opens.
     await loadSources({initial:true,silent:false,forceScan:true});
   }catch(e){
     console.error(e);

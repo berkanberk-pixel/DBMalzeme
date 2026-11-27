@@ -570,7 +570,9 @@ try {
             $dots[$i].ForeColor=[Drawing.Color]::FromArgb($r,$g,$b)
         }
         if($script:tickCount%6 -ne 0){return}
-        if(([DateTime]::UtcNow-$script:started).TotalMinutes -gt 5){Show-Error 'Başlatma zaman aşımına uğradı. Ağ, Python ve WebView2 bileşenlerini kontrol edin.';return}
+        # UI shell signals talep-ui-ready before UNC full load; keep a longer
+        # ceiling for slow Python/WebView2/network bootstrap only.
+        if(([DateTime]::UtcNow-$script:started).TotalMinutes -gt 15){Show-Error 'Başlatma zaman aşımına uğradı. Ağ, Python ve WebView2 bileşenlerini kontrol edin.';return}
         if($script:svcProc -and $script:svcProc.HasExited -and $script:svcProc.ExitCode -ne 0){
             Show-Error ('Yerel hizmet başlatılamadı (kod '+$script:svcProc.ExitCode+'). Hata günlüğünü inceleyin.');return
         }
