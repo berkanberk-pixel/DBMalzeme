@@ -57,8 +57,13 @@ class BootHandoffTests(unittest.TestCase):
     def test_boot_snapshot_has_timeout_and_fallback(self):
         js = (ROOT / 'app.js').read_text(encoding='utf-8')
         self.assertIn('function emptyBootSnapshot', js)
-        self.assertIn('light?12000', js)
+        self.assertIn('light?45000', js)
+        self.assertIn('BOOT_TIMEOUT', js)
+        self.assertIn("missing:[]", js)
         self.assertIn('Boot snapshot fallback', js)
+        self.assertIn("status:'pending'", js)
+        self.assertIn('background:true', js)
+        self.assertIn('600000', js)
         # Regression: duplicate const diag crashed the whole script (0% hang).
         self.assertIn("const diagEl=$('#diagnostics')", js)
         start = js.index('function renderCommon()')

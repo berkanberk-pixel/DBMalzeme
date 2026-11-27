@@ -147,6 +147,7 @@ DEFAULT_CONFIG = {
 _SNAPSHOT_CACHE = {'value': None, 'created': 0.0}
 _SNAPSHOT_LOCK = threading.RLock()
 _SNAPSHOT_REFRESH_LOCK = threading.Lock()
+_SNAPSHOT_MANAGED_LOCK = threading.Lock()
 _SNAPSHOT_REFRESH_STARTED = False
 
 def invalidate_source_snapshot():
@@ -154,11 +155,16 @@ def invalidate_source_snapshot():
         _SNAPSHOT_CACHE['value'] = None
         _SNAPSHOT_CACHE['created'] = 0.0
 
+def _path_is_unc(path) -> bool:
+    s = str(path or '')
+    return s.startswith('\\\\') or s.startswith('//')
+
 def _active_only_light_snapshot():
     """Boot/light path: ACTIVE disk state only — no UNC candidate scan.
 
     Slow corporate shares must not block first paint; full managed snapshot
     runs in the background and fills _SNAPSHOT_CACHE.
+    Never Path.exists()/stat() on UNC paths (hangs → client BOOT_TIMEOUT).
     """
     cfg = load_config()
     state = _json_load(SOURCE_ACTIVE_STATE_PATH, {})
@@ -167,7 +173,7 @@ def _active_only_light_snapshot():
     active = {}
     missing = []
     for source in SOURCE_NAMES:
-        info = _deserialize_source_info(source, state.get(source))
+        info = _deserialize_source_info(source, state.get(source), light=True)
         active[source] = info
         if not info:
             missing.append(source)
@@ -190,7 +196,9 @@ def _schedule_managed_snapshot_refresh():
     def worker():
         global _SNAPSHOT_REFRESH_STARTED
         try:
-            value = managed_source_snapshot()
+            # Never hold _SNAPSHOT_LOCK during UNC managed scan — light boot must stay free.
+            with _SNAPSHOT_MANAGED_LOCK:
+                value = managed_source_snapshot()
             with _SNAPSHOT_LOCK:
                 _SNAPSHOT_CACHE['value'] = value
                 _SNAPSHOT_CACHE['created'] = time.time()
@@ -206,20 +214,39 @@ def _schedule_managed_snapshot_refresh():
     threading.Thread(target=worker, name='talep-snapshot-refresh', daemon=True).start()
 
 def source_snapshot_cached(force=False, light=False):
+    """Return managed/ACTIVE snapshot.
+
+    light=True never waits on UNC managed scan and never holds the cache lock
+    across network I/O — boot /api/files?light=1 must answer in milliseconds.
+    """
     with _SNAPSHOT_LOCK:
-        if not force and _SNAPSHOT_CACHE.get('value') is not None and time.time()-_SNAPSHOT_CACHE.get('created',0)<30:
-            return _SNAPSHOT_CACHE['value']
+        cached = _SNAPSHOT_CACHE.get('value')
+        created = float(_SNAPSHOT_CACHE.get('created') or 0)
+        fresh = cached is not None and (time.time() - created) < 30
+        if not force and fresh:
+            return cached
         if light and not force:
-            # Prefer memory miss → ACTIVE-only (no UNC). Refresh candidates async.
             value = _active_only_light_snapshot()
             _SNAPSHOT_CACHE['value'] = value
             _SNAPSHOT_CACHE['created'] = time.time()
             _schedule_managed_snapshot_refresh()
             return value
+
+    # Full managed path: serialize UNC work, but do not hold _SNAPSHOT_LOCK while scanning.
+    with _SNAPSHOT_MANAGED_LOCK:
+        if not force:
+            with _SNAPSHOT_LOCK:
+                cached = _SNAPSHOT_CACHE.get('value')
+                created = float(_SNAPSHOT_CACHE.get('created') or 0)
+                if cached is not None and (time.time() - created) < 30:
+                    cfg0 = cached[0] if isinstance(cached, tuple) and cached else {}
+                    if not (isinstance(cfg0, dict) and cfg0.get('_light_snapshot')):
+                        return cached
         value = managed_source_snapshot()
-        _SNAPSHOT_CACHE['value'] = value
-        _SNAPSHOT_CACHE['created'] = time.time()
-        return value
+        with _SNAPSHOT_LOCK:
+            _SNAPSHOT_CACHE['value'] = value
+            _SNAPSHOT_CACHE['created'] = time.time()
+            return value
 
 
 
@@ -1243,6 +1270,27 @@ def _source_info_from_files(source, files, origin='active'):
     return {'name':files[0]['name'] if len(files)==1 else f'{len(files)} CSV dosyası','path':files[0]['path'] if len(files)==1 else ' | '.join(x['name'] for x in files),'size':size,'lastModified':lm,'modifiedIso':time.strftime('%Y-%m-%dT%H:%M:%S',time.localtime(lm/1000)),'origin':origin,'confidence':100,'detection':'managed','files':files}
 
 
+def _source_info_from_files_meta(source, files, origin='active'):
+    """ACTIVE meta without Path.exists/stat — light boot must not touch UNC."""
+    out=[]
+    for i,f in enumerate(files or []):
+        if not f or not f.get('path'):continue
+        nf=dict(f);path=Path(nf['path'])
+        nf['name']=nf.get('name') or path.name
+        nf['size']=int(nf.get('size') or 0)
+        nf['lastModified']=int(nf.get('lastModified') or 0)
+        if not nf.get('modifiedIso') and nf['lastModified']:
+            try:nf['modifiedIso']=time.strftime('%Y-%m-%dT%H:%M:%S',time.localtime(nf['lastModified']/1000))
+            except Exception:nf['modifiedIso']=''
+        nf['origin']=origin
+        nf['url']='/api/file?source='+urllib.parse.quote(source)+'&index='+str(i)
+        out.append(nf)
+    if not out:return None
+    size=sum(int(x.get('size') or 0) for x in out)
+    lm=max(int(x.get('lastModified') or 0) for x in out)
+    return {'name':out[0]['name'] if len(out)==1 else f'{len(out)} CSV dosyası','path':out[0]['path'] if len(out)==1 else ' | '.join(x['name'] for x in out),'size':size,'lastModified':lm,'modifiedIso':time.strftime('%Y-%m-%dT%H:%M:%S',time.localtime(lm/1000)) if lm else '','origin':origin,'confidence':100,'detection':'managed','files':out}
+
+
 def _shadow_small_source(source, info):
     if source not in SMALL_SHADOW_SOURCES or not info:return info
     target_dir=SOURCE_ACTIVE_SHADOW_ROOT/source;target_dir.mkdir(parents=True,exist_ok=True);out=[]
@@ -1268,18 +1316,45 @@ def _serialize_source_info(info):
     return {'files':keep,'acceptedDigest':_source_digest(info),'acceptedAt':datetime.now().astimezone().isoformat()}
 
 
-def _deserialize_source_info(source, rec):
+def _deserialize_source_info(source, rec, *, light=False):
     if not rec:return None
     files=[];relocated=False
     for raw in rec.get('files') or []:
         f=dict(raw or {});path=Path(f.get('path') or '')
+        name=str(f.get('name') or path.name)
+        local=SOURCE_ACTIVE_SHADOW_ROOT/str(source)/name
+        if light:
+            # Prefer local shadow; never Path.exists() on UNC (boot hang → BOOT_TIMEOUT).
+            if local.exists():
+                f['path']=str(local);f['origin']='active-shadow-relocated';relocated=True
+                files.append(f)
+            elif _path_is_unc(path):
+                files.append(f)  # keep ACTIVE meta; no UNC probe
+            elif str(path) and path.exists():
+                files.append(f)
+            continue
         if not path.exists():
             # Paket farklı bilgisayara/klasöre taşındığında eski mutlak yol geçersiz olabilir.
             # ACTIVE gölge dosyası paket içinde kaynak + dosya adıyla yeniden çözülür.
-            local=SOURCE_ACTIVE_SHADOW_ROOT/str(source)/str(f.get('name') or path.name)
             if local.exists():f['path']=str(local);f['origin']='active-shadow-relocated';relocated=True
         files.append(f)
+    if not files:return None
     origin = 'active-shadow-relocated' if relocated else (files[0].get('origin') if files else None) or 'active'
+    if light:
+        local_files=[];meta_files=[]
+        for f in files:
+            p=Path(f.get('path') or '')
+            if _path_is_unc(p):meta_files.append(f)
+            elif p.exists():local_files.append(f)
+            else:meta_files.append(f)
+        merged=[]
+        if local_files:
+            st=_source_info_from_files(source, local_files, origin)
+            if st:merged.extend(st['files'])
+        if meta_files:
+            mt=_source_info_from_files_meta(source, meta_files, origin)
+            if mt:merged.extend(mt['files'])
+        return _source_info_from_files_meta(source, merged, origin) if merged else None
     info = _source_info_from_files(source, files, origin)
     return info if info and len(info['files']) == len(files) else None
 
@@ -1639,6 +1714,7 @@ def source_access_state(cfg, sources, engine):
 
     Kullanılabilir yerel indeks varken (READY veya STALE) uygulama yazılabilir kalır.
     Arka plan yeniden indeksleme veya aday güncelleme salt okunur kilidi koymaz.
+    Light/ACTIVE CSV meta eksikliği usable indeksi salt-okunur yapmaz (merkez seed).
     """
     candidates=cfg.get('_candidate_sources') or {}
     active_missing=[name for name in SOURCE_NAMES if not (sources or {}).get(name)]
@@ -1661,15 +1737,14 @@ def source_access_state(cfg, sources, engine):
     if status=='CORRUPT':
         current=False
         reason='Yerel veri bütünlüğü doğrulanamadı: '+str(engine.get('lastError') or 'İndeks yeniden hazırlanmalı.')
-    elif active_missing:
-        current=False
-        reason='Merkezi/yerel kaynak eksik: '+', '.join(active_missing)
     elif not usable:
         current=False
         if building:
             reason='Yerel indeks ilk kez hazırlanıyor. Tamamlanınca Verileri Yenile.'
         elif status=='FAILED':
             reason='Yerel indeks hazırlanamadı: '+str(engine.get('error') or engine.get('lastError') or 'Verileri Yenile ile tekrar deneyin.')
+        elif active_missing:
+            reason='Merkezi/yerel kaynak eksik: '+', '.join(active_missing)
         else:
             reason='Yerel indeks henüz yok. Verileri Yenile ile oluşturun.'
     else:
@@ -1680,6 +1755,8 @@ def source_access_state(cfg, sources, engine):
             notes.append('İndeks arka planda güncelleniyor; mevcut yerel veri kullanılıyor.')
         elif not ready:
             notes.append('Yerel indeks önceki kaynaklarla çalışıyor; yeni kaynak varsa onay bekleniyor olabilir.')
+        if active_missing:
+            notes.append('ACTIVE CSV meta eksik (senkron sürüyor): '+', '.join(active_missing))
     if current and candidate_missing:
         notes.append('Merkezi kayıt kullanılıyor; ağ adayı eksik: '+', '.join(candidate_missing))
     network_note=' '.join(notes)
@@ -4964,7 +5041,8 @@ def _initial_engine_prepare():
                     DATA_ARCH_V2.audit('INDEX','CENTRAL_SEED_SKIP','SYSTEM','INDEX','SEED',{'error':str(seed_exc)})
                 except Exception:
                     pass
-        cfg, sources, missing = source_snapshot_cached(force=False)
+        # Light first: never block startup on UNC managed scan (locks boot /api/files).
+        cfg, sources, missing = source_snapshot_cached(force=False, light=True)
         engine=_engine_snapshot(sources)
         if missing and (engine.get('usable') or not any(sources.get(k) for k in ('MB51','MB52','ZMM048','KESIFLER'))):
             return

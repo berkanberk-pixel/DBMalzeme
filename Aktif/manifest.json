@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "product": "Talep Kontrol",
-  "release_id": "talep-5718349d6d69a0f5",
-  "package": "Paketler/talep-5718349d6d69a0f5/TalepKontrol.zip",
-  "sha256": "5718349d6d69a0f57cc4622614e5868c33f6a655229ead0fdf6856fedcbbf56c",
-  "size_bytes": 56286846,
-  "published_utc": "2026-11-27T15:45:52.731922+00:00",
-  "notes": "v1.0.4-install-selfkill: Talep_Kontrol.exe 6.2.2 — taskkill no longer matches installer title Talep Kontrol Kurulum (was Talep Kontrol*); keep central-index package contents"
+  "release_id": "talep-cbd4d3f06581c476",
+  "package": "Paketler/talep-cbd4d3f06581c476/TalepKontrol.zip",
+  "sha256": "99526b3e0ccf0ef7aa6d92c5de601da5a831423400f630a446a755177e0fa79e",
+  "size_bytes": 56357698,
+  "published_utc": "2026-11-27T16:17:48.723135+00:00",
+  "notes": "v1.0.4-boot-refresh-timeout: light /api/files no UNC hang; snapshot lock fix; Yenile non-blocking; force timeout 10m; usable index not false salt-okunur"
 }

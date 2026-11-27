@@ -241,19 +241,22 @@ function validateSource(src){
 }
 
 function emptyBootSnapshot(reason){
+  // Degraded shell only — do NOT invent "all sources missing" (false salt-okunur).
+  // Real ACTIVE/light meta arrives via background sync; diagnosis stays BOOT_TIMEOUT.
   return{
     ok:true,light:true,degraded:true,degradedReason:String(reason||'timeout'),
-    sources:Object.fromEntries(SOURCES.map(s=>[s,null])),missing:[...SOURCES],
-    roots:[],externalRoot:'',bundledRoot:'',dataEngine:{usable:false,ready:false,status:'UNKNOWN'},
+    sources:Object.fromEntries(SOURCES.map(s=>[s,null])),missing:[],
+    roots:[],externalRoot:'',bundledRoot:'',dataEngine:{usable:false,ready:false,status:'UNKNOWN',building:true},
     sourceHealth:{sources:[],light:true},pendingSourceUpdates:[],freshnessWarnings:[],
-    sourceAccess:{current:false,reason:'Kaynak meta zaman aşımı / önbellek yok — arka plan senkronu devam ediyor.',diagnosis:{reasonCode:'BOOT_TIMEOUT',missing:[...SOURCES]}},
+    sourceAccess:{current:false,reason:'Açılış meta gecikti — arka plan senkronu sürüyor; kaynaklar henüz yok sayılmadı.',diagnosis:{reasonCode:'BOOT_TIMEOUT',missing:[]}},
     recordSecurity:{sharedWritesEnabled:false,reason:'Kaynak meta henüz doğrulanamadı.'},
     autoAccept:[],silentActiveAccept:true,releaseId:'',scanDiagnostics:[{level:'warn',text:String(reason||'Açılış zaman aşımı')}]
   };
 }
 async function fetchSnapshot(forceScan=false, light=false){
-  // Light/boot: short timeout so slow UNC never freezes the loading screen.
-  const ms=forceScan?240000:(light?12000:45000);
+  // Light/boot: local ACTIVE only — server must not touch UNC. Keep a generous
+  // client ceiling for cold Python start; force UNC may take many minutes.
+  const ms=forceScan?600000:(light?45000:45000);
   const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),ms);
   try{
     const qs=[];
@@ -264,7 +267,7 @@ async function fetchSnapshot(forceScan=false, light=false){
     if(!r.ok)throw new Error(`Yerel veri servisi yanıt vermedi (${r.status}).`);
     return await r.json();
   }catch(e){
-    if(e?.name==='AbortError')throw new Error(forceScan?'Veri yenileme 240 saniyeyi aştı. Kaynak dosyalarını kontrol edin.':(light?'Hafif kaynak meta 12 sn içinde gelmedi.':'CSV kaynak taraması 45 saniyeyi aştı. Veri klasörünü kontrol edin.'));
+    if(e?.name==='AbortError')throw new Error(forceScan?'Ağ kaynak taraması 10 dakikayı aştı. Bağlantı/UNC paylaşımını kontrol edin; mevcut yerel indeks kullanılmaya devam eder.':(light?'Hafif kaynak meta 45 sn içinde gelmedi.':'CSV kaynak taraması 45 saniyeyi aştı. Veri klasörünü kontrol edin.'));
     throw e;
   }finally{clearTimeout(timer)}
 }
@@ -341,6 +344,7 @@ window.addEventListener('talep-service-access',e=>{
   }
 });
 let sourceLoadInFlight=null;
+let sourceForceSyncInFlight=null;
 let backgroundSourceSyncScheduled=false;
 const sourceBookFingerprints=new Map();
 const sourceOpsLog=[];
@@ -364,15 +368,27 @@ function initSourceOpsTerminal(){
   const toggle=$('#sourceOpsToggle');if(toggle)toggle.onclick=()=>{const term=$('#sourceOpsTerminal');if(!term)return;term.classList.toggle('collapsed');toggle.textContent=term.classList.contains('collapsed')?'▲':'▼'};
 }
 function loadSources(options={}){
+  // Force UNC scan runs in its own flight so a long refresh does not steal
+  // interactive light loads forever — but we still serialize to protect state.
+  if(options.forceScan){
+    if(sourceForceSyncInFlight)return sourceForceSyncInFlight;
+    sourceForceSyncInFlight=Promise.resolve(sourceLoadInFlight).catch(()=>null)
+      .then(()=>loadSourcesOnce(options))
+      .finally(()=>{sourceForceSyncInFlight=null});
+    return sourceForceSyncInFlight;
+  }
   if(sourceLoadInFlight)return sourceLoadInFlight;
-  sourceLoadInFlight=loadSourcesOnce(options).finally(()=>{sourceLoadInFlight=null});
+  const afterForce=sourceForceSyncInFlight?sourceForceSyncInFlight.catch(()=>null):Promise.resolve();
+  sourceLoadInFlight=afterForce.then(()=>loadSourcesOnce(options)).finally(()=>{sourceLoadInFlight=null});
   return sourceLoadInFlight;
 }
 function scheduleBackgroundSourceSync(){
   if(backgroundSourceSyncScheduled)return;
   backgroundSourceSyncScheduled=true;
   setTimeout(()=>{
-    loadSources({silent:true,forceScan:true}).catch(e=>console.warn('Arka plan kaynak senkronu:',e));
+    loadSources({silent:true,forceScan:true,background:true})
+      .then(()=>{if(state.meta.dataEngine?.building)toast('Ağ taraması bitti; indeks arka planda güncelleniyor.','info',5200)})
+      .catch(e=>{console.warn('Arka plan kaynak senkronu:',e);toast('Arka plan yenileme: '+(e.message||e),'warn',6500)});
   },1800);
 }
 async function prepareSourceBook(src,info){
@@ -389,11 +405,14 @@ async function prepareSourceBook(src,info){
     return{src,file,book,fingerprint,diagnostics:[]};
   }catch(e){return{src,file:{...file,status:'bad'},book:null,diagnostics:[{level:'bad',text:`${src}: ${e.message}`,source:src}]}}
 }
-async function loadSourcesOnce({initial=false,silent=false,forceScan=false}={}){
+async function loadSourcesOnce({initial=false,silent=false,forceScan=false,background=false}={}){
   // [1] Progressive (Halit): light /api/files + usable index first paint;
   // heavy UNC refresh and remaining books continue in background.
-  invalidateDecisionEvidence('Kaynaklar yenileniyor.');
-  state.meta.sourceAccess={...state.meta.sourceAccess,current:false,reason:'Kaynaklar yenileniyor.'};
+  // background=true: do not flip salt-okunur / kilitle UI while UNC scan runs.
+  invalidateDecisionEvidence(background?'Arka plan kaynak senkronu.':'Kaynaklar yenileniyor.');
+  if(!background){
+    state.meta.sourceAccess={...state.meta.sourceAccess,current:false,reason:'Kaynaklar yenileniyor.'};
+  }
   state.diagnostics=[];kesifContextLoaded.clear();
   if(location.protocol==='file:')throw new Error('Bu paket index.html dosyasına çift tıklanarak çalıştırılmaz. BASLAT.vbs kullanın.');
   const lightMeta=initial?!forceScan:!forceScan;
@@ -453,8 +472,16 @@ async function loadSourcesOnce({initial=false,silent=false,forceScan=false}={}){
     }
     // Initial progressive: skip parsing deferred books; keep file meta only.
     if(initial&&isLazy){
-      if(!info){prepared.push({src,file:{status:'missing',name:'',path:'',origin:''},book:null,diagnostics:[{level:'warn',text:`${FRIENDLY[src]} kaynağı bulunamadı (lazy).`}]});}
+      if(!info){
+        const pending=!!snap.degraded;
+        prepared.push({src,file:{status:pending?'pending':'missing',name:'',path:'',origin:''},book:null,diagnostics:[{level:'warn',text:pending?`${FRIENDLY[src]} senkron bekliyor (lazy).`:`${FRIENDLY[src]} kaynağı bulunamadı (lazy).`}]});
+      }
       else prepared.push({src,file:{...info,status:'ok'},book:{},diagnostics:[]});
+      continue;
+    }
+    if(!info&&snap.degraded){
+      prepared.push({src,file:{status:'pending',name:'',path:'',origin:''},book:null,diagnostics:[{level:'warn',text:`${FRIENDLY[src]} açılışta beklemede — arka plan senkronu.`}]} );
+      logSourceOp(src,'pending','BOOT_TIMEOUT / senkron',null);
       continue;
     }
     const preparedOne=await prepareSourceBook(src,info);
@@ -475,7 +502,14 @@ async function loadSourcesOnce({initial=false,silent=false,forceScan=false}={}){
   for(const w of state.meta.freshnessWarnings||[])state.diagnostics.push({level:'warn',text:w.message||`${w.source} güncelliği`,source:w.source});
   normalizeData();buildIndexes();validateData();
   state.meta.loadedSnapshotId=Object.values(state.files).every(f=>f.status==='ok')?(snap.sourceAccess?.snapshotId||''):'';
-  applySourceAccess(Object.values(state.files).some(f=>f.status==='bad'||f.status==='missing')?{...snap.sourceAccess,current:false,reason:'Yüklenemeyen kaynaklar: '+Object.entries(state.files).filter(([,f])=>f.status==='bad'||f.status==='missing').map(([src])=>src).join(', ')+'. Ayrıntılar kaynak tanılamasında.'}:snap.sourceAccess);
+  // Do not invent salt-okunur from BOOT_TIMEOUT/pending or usable-index partial books.
+  const hardFail=Object.entries(state.files).filter(([,f])=>f.status==='bad'||f.status==='missing');
+  const engineUsable=!!(snap.dataEngine&&(snap.dataEngine.usable||snap.dataEngine.ready));
+  if(hardFail.length&&!snap.degraded&&!engineUsable){
+    applySourceAccess({...snap.sourceAccess,current:false,reason:'Yüklenemeyen kaynaklar: '+hardFail.map(([src])=>src).join(', ')+'. Ayrıntılar kaynak tanılamasında.'});
+  }else{
+    applySourceAccess(snap.sourceAccess);
+  }
   renderCommon();
   scheduleSourceUpdateAlerts(state.meta.pendingSourceUpdates||[]);
   resetKesifManagementCache();
@@ -886,6 +920,7 @@ function guaranteeStatusBadge(mat,ok,checked){if(mat?.guaranteeExempt)return bad
 function fileState(src){
   const f=state.files[src];
   if(!f)return{label:'Bulunamadı',cls:'bad'};
+  if(f.status==='pending')return{label:'Senkron',cls:'neutral'};
   if(f.status==='bad'||f.status==='missing')return{label:'Hata',cls:'bad'};
   if(src==='MB51'&&f.status==='ready')return{label:'Hazır',cls:'ok'};
   if(f.status==='ok'||f.status==='ready')return{label:'Hazır',cls:'ok'};
@@ -3618,7 +3653,22 @@ function initEvents(){
   $('#decisionResultModal').onclick=e=>{if(e.target===$('#decisionResultModal'))closeDecisionModal()};
   document.addEventListener('click',e=>{const target=e.target instanceof Element?e.target:null;if(!target)return;if(!target.closest('.reservation-search-field')&&!target.closest('#reservationLookupBtn'))closeReservationSearch();if(!target.closest('.manual-depot-search-field'))closeManualDepotSearch();if(!target.closest('.manual-material-search-field'))closeManualMaterialSearch();if(!target.closest('#manualContextMenu'))hideManualContextMenu();if(!target.closest('#dashboardCompanyCombo'))closeDashboardFilterResults('company');if(!target.closest('#dashboardDepotCombo'))closeDashboardFilterResults('depot')});
   document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;if(!$('#repeatControlModal').hidden)closeRepeatControlModal(false);else if(!$('#recordDetailModal').hidden)closeRecordDetail();else if(!$('#decisionResultModal').hidden)closeDecisionModal()});
-  $('#refreshBtn').onclick=async()=>{const b=$('#refreshBtn');closeReservationSearch();if(b)b.disabled=true;const t=Date.now();try{await loadSources({silent:true,forceScan:true});const wait=Math.max(0,350-(Date.now()-t));if(wait)await sleep(wait);toast(state.meta.dataEngine?.building?'Kaynaklar yenilendi. Büyük veri indeksi arka planda güncelleniyor.':'Veriler yenilendi.')}catch(e){toast('Yenileme hatası: '+e.message)}finally{if(b)b.disabled=false}};
+  $('#refreshBtn').onclick=async()=>{
+    const b=$('#refreshBtn');closeReservationSearch();if(b)b.disabled=true;const t=Date.now();
+    try{
+      // Hızlı: ACTIVE/light meta — UNC’yi UI’da bekletme.
+      await loadSources({silent:true,forceScan:false});
+      const wait=Math.max(0,350-(Date.now()-t));if(wait)await sleep(wait);
+      toast('Yerel kaynaklar güncellendi. Ağ taraması arka planda…','info',4200);
+    }catch(e){toast('Yenileme hatası: '+e.message)}
+    finally{if(b)b.disabled=false}
+    // Yavaş UNC forceScan arka planda; buton/kilit serbest.
+    loadSources({silent:true,forceScan:true,background:true}).then(()=>{
+      toast(state.meta.dataEngine?.building
+        ?'Ağ taraması bitti. Büyük veri indeksi arka planda güncelleniyor.'
+        :'Ağ kaynak taraması tamamlandı.','success',5200);
+    }).catch(e=>{console.warn('Arka plan yenileme:',e);toast('Arka plan yenileme: '+(e.message||e),'warn',7000)});
+  };
   $('#loadingRetry').onclick=async()=>{if($('#loadingError'))$('#loadingError').hidden=true;if($('#loadingRetry'))$('#loadingRetry').hidden=true;loadingStartedAt=performance.now();loadingLastProgress=0;setLoading(4,'Yerel veri servisine yeniden bağlanılıyor…','Kaynak klasörü ve dosya eşleşmeleri tekrar kontrol ediliyor.');try{await loadSources({initial:true});await Promise.allSettled([loadUserContext(true),loadUserResponsibilities(true),loadNotifications(true)])}catch(e){showLoadingIssue(e.message)}};
   $('#notesText').value=localStorage.getItem('talep-current-notes')||'';$('#saveNoteBtn').onclick=()=>{localStorage.setItem('talep-current-notes',$('#notesText').value);$('#noteSaved').textContent='Kaydedildi';setTimeout(()=>$('#noteSaved').textContent='',1400)};
   $('#dashboardRefreshBtn').onclick=loadDashboardView;

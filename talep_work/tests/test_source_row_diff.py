@@ -77,12 +77,26 @@ class SourceAccessStateTests(unittest.TestCase):
         self.assertIn('KESIFLER', access['candidateMissing'])
         self.assertTrue(access['networkNote'])
 
-    def test_missing_active_kesif_still_blocks(self):
+    def test_missing_active_kesif_with_usable_index_stays_writable(self):
+        """Usable local/central index must not flip salt-okunur for partial ACTIVE CSV meta."""
         import server as srv
 
         cfg = {'_candidate_sources': {}}
         sources = {name: {'files': [{'path': 'x'}]} for name in srv.SOURCE_NAMES if name != 'KESIFLER'}
-        engine = {'ready': True, 'building': False, 'usable': True, 'status': 'READY'}
+        engine = {'ready': True, 'building': False, 'usable': True, 'status': 'READY',
+                  'buildId': 'B1', 'indexSourceDigest': 'd'}
+        access = srv.source_access_state(cfg, sources, engine)
+        self.assertTrue(access['current'], access)
+        self.assertFalse(access['readOnly'])
+        self.assertEqual(access['missing'], ['KESIFLER'])
+        self.assertIn('ACTIVE CSV meta eksik', access.get('networkNote') or '')
+
+    def test_missing_active_without_usable_index_is_readonly(self):
+        import server as srv
+
+        cfg = {'_candidate_sources': {}}
+        sources = {name: {'files': [{'path': 'x'}]} for name in srv.SOURCE_NAMES if name != 'KESIFLER'}
+        engine = {'ready': False, 'building': False, 'usable': False, 'status': 'MISSING'}
         access = srv.source_access_state(cfg, sources, engine)
         self.assertFalse(access['current'])
         self.assertTrue(access['readOnly'])
