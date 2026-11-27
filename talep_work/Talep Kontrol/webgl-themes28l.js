@@ -3,11 +3,11 @@
   'use strict';
   const STORAGE='tk.webgl.theme.v1', MOTION='tk.webgl.motion.v1';
   const THEMES=[
-    {id:'atlas',name:'Şebeke Atlası',detail:'Lacivert · turkuaz enerji ağı',description:'Hat ve bağlantı noktaları',palette:['#0a2946','#075c78','#72e3e9']},
-    {id:'flow',name:'Enerji Akışı',detail:'Kobalt · kehribar akış çizgileri',description:'Dinamik enerji akış hatları',palette:['#182b64','#d58b25','#ffd788']},
-    {id:'prism',name:'Kristal Panel',detail:'Mor · buz mavisi kırınım',description:'Cam ve prizmatik ışık yüzeyleri',palette:['#362355','#148d9e','#b7f0ff']},
-    {id:'terrain',name:'Topoğrafya',detail:'Petrol yeşili · topografik konturlar',description:'Arazi ve şebeke kontur izleri',palette:['#143d3b','#347d4a','#b4f7c6']},
-    {id:'control',name:'Kontrol Odası',detail:'Grafit · kontrollü yeşil radar',description:'Radar ve dijital tarama çizgileri',palette:['#1d292c','#526a31','#d9ff85']}
+    {id:'atlas',name:'Şebeke Atlası',detail:'Lacivert · turkuaz enerji ağı',description:'Görsel tema: hat/bağlantı ağı. Veri ve kayıt kurallarını değiştirmez.',helpKey:'themeAtlas',palette:['#0a2946','#075c78','#72e3e9']},
+    {id:'flow',name:'Enerji Akışı',detail:'Kobalt · kehribar akış çizgileri',description:'Görsel tema: dinamik akış çizgileri. Yalnızca görünüm.',helpKey:'themeFlow',palette:['#182b64','#d58b25','#ffd788']},
+    {id:'prism',name:'Kristal Panel',detail:'Mor · buz mavisi kırınım',description:'Görsel tema: cam/prizma yüzeyleri. Yalnızca görünüm.',helpKey:'themePrism',palette:['#362355','#148d9e','#b7f0ff']},
+    {id:'terrain',name:'Topoğrafya',detail:'Petrol yeşili · topografik konturlar',description:'Görsel tema: arazi/kontur izleri. Yalnızca görünüm.',helpKey:'themeTerrain',palette:['#143d3b','#347d4a','#b4f7c6']},
+    {id:'control',name:'Kontrol Odası',detail:'Grafit · kontrollü yeşil radar',description:'Görsel tema: radar tarama. Yalnızca görünüm.',helpKey:'themeControl',palette:['#1d292c','#526a31','#d9ff85']}
   ];
   const byId=id=>THEMES.find(t=>t.id===id)||THEMES[0];
   const read=(key,fallback)=>{try{return localStorage.getItem(key)||fallback}catch(_){return fallback}};
@@ -122,8 +122,10 @@
       const btn=document.createElement('button');btn.id='tkGlThemeButton';btn.type='button';btn.className='tk-gl-theme-trigger';btn.setAttribute('aria-expanded','false');btn.setAttribute('aria-controls','tkGlThemePanel');
       btn.innerHTML='<span aria-hidden="true">◈</span><span id="tkGlButtonLabel"></span><span aria-hidden="true">⌄</span>';
       const pop=document.createElement('div');pop.id='tkGlThemePanel';pop.className='tk-gl-theme-panel';pop.hidden=true;
-      pop.innerHTML='<h3>Arayüz Temaları</h3><p>Birini seçin; tema anında değişir.</p><div class="tk-gl-options" data-tk-gl-theme-list="popup"></div><label class="tk-gl-toggle-row"><input type="checkbox" data-tk-gl-animate> Hareketli arka plan efektlerini kullan</label>';
+      pop.innerHTML='<h3>Arayüz Teması <button class="tk-help-trigger" type="button" data-help-key="theme" aria-label="Tema nedir?" title="Tema nedir?">?</button></h3><p>Yalnızca görsel görünüm — hesaplama, yetki ve kesin kaydı değiştirmez. Seçim bu bilgisayarda hatırlanır.</p><div class="tk-gl-options" data-tk-gl-theme-list="popup"></div><label class="tk-gl-toggle-row"><input type="checkbox" data-tk-gl-animate> Hareketli arka plan efektlerini kullan <button class="tk-help-trigger" type="button" data-help-key="themeMotion" aria-label="Hareketli arka plan nedir?" title="Bilgi">?</button></label>';
       wrapper.append(btn,pop);
+      btn.setAttribute('title','Arayüz teması (görsel). Veri/kayıt kurallarını değiştirmez.');
+      btn.setAttribute('aria-label','Arayüz teması seçici');
       bar.insertBefore(wrapper,bar.querySelector('.tk-uxj-tools')||bar.firstElementChild);
       btn.addEventListener('click',()=>{pop.hidden=!pop.hidden;btn.setAttribute('aria-expanded',pop.hidden?'false':'true')});
       document.addEventListener('click',e=>{if(!wrapper.contains(e.target))closePanel()});
@@ -143,7 +145,7 @@
     const settings=document.getElementById('settingsView');
     if(settings){
       const panel=document.createElement('section');panel.className='tk-gl-settings';panel.id='tkGlSettings';
-      panel.innerHTML='<h3>Arayüz Görünümü</h3><p>Beş farklı görsel tasarım arasında geçiş yapabilirsiniz. Tema yalnızca bu tarayıcıda hatırlanır. İşlemler, hesaplamalar, yetkiler ve Excel dosyaları etkilenmez.</p><div class="tk-gl-settings-grid" data-tk-gl-theme-list="settings"></div><label class="tk-gl-toggle-row"><input type="checkbox" data-tk-gl-animate> Hareketli efektler etkin</label><div class="tk-gl-settings-footer"><strong>Durum:</strong> <span id="tkGlSettingsStatus">Kontrol ediliyor</span></div>';
+      panel.innerHTML='<h3>Arayüz Görünümü <button class="tk-help-trigger" type="button" data-help-key="theme" aria-label="Tema nedir?">?</button></h3><p>Header’daki «Tema · Şebeke Atlası» vb. seçiciyle aynıdır: salt görsel tema. Beş palet arasında geçiş yapabilirsiniz. Bu tarayıcıda hatırlanır. İşlemler, hesaplamalar, yetkiler ve Excel dosyaları etkilenmez.</p><div class="tk-gl-settings-grid" data-tk-gl-theme-list="settings"></div><label class="tk-gl-toggle-row"><input type="checkbox" data-tk-gl-animate> Hareketli efektler etkin <button class="tk-help-trigger" type="button" data-help-key="themeMotion" aria-label="Hareketli efekt nedir?">?</button></label><div class="tk-gl-settings-footer"><strong>Durum:</strong> <span id="tkGlSettingsStatus">Kontrol ediliyor</span></div>';
       settings.prepend(panel);
     }
     renderChoices();

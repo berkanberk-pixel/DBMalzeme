@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "product": "Talep Kontrol",
-  "release_id": "talep-2c753aad588b04ed",
-  "package": "Paketler/talep-2c753aad588b04ed/TalepKontrol.zip",
-  "sha256": "2c753aad588b04ed523e1ae51b2640c05be519dac772239fc57a3c4aecc82862",
-  "size_bytes": 56279103,
-  "published_utc": "2026-11-27T08:51:27.639213+00:00",
-  "notes": "v1.0.4-boot-timeout: fix app.js SyntaxError (diag); light=/ACTIVE-only no UNC; 12s timeout + emptyBootSnapshot fallback"
+  "release_id": "talep-722ef65652e80ccc",
+  "package": "Paketler/talep-722ef65652e80ccc/TalepKontrol.zip",
+  "sha256": "722ef65652e80cccdf645dbccb3e5d756060c205febb3cd49f10eec8ee69960c",
+  "size_bytes": 56282794,
+  "published_utc": "2026-11-27T10:21:38.886868+00:00",
+  "notes": "v1.0.4-ux-ops: kesin kayıt OPEN_RESERVATION; kaynak sağlığı yalnız Veri Merkezi; alt kaynak-ops terminali; disconnect salt-okunur düzeltmesi; Tema/Şebeke Atlası yardım açıklamaları"
 }

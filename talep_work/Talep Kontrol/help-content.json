@@ -339,6 +339,28 @@
         "Sorun sürerse TEST_ET.bat dosyasını çalıştırıp başlangıç logunu inceleyin."
       ],
       "note": "Bağlantı ve indeks sorunu devam ederse veri klasörü erişimini, yerel servis günlüğünü ve veri indeksinin durumunu kontrol edin."
+    },
+    {
+      "id": "arayuz-temasi",
+      "category": "baslangic",
+      "title": "Header’daki Tema (Şebeke Atlası vb.) ne işe yarar?",
+      "summary": "Görsel tema seçici — veri ve kayıt kurallarını değiştirmez.",
+      "tags": [
+        "tema",
+        "şebeke atlası",
+        "görünüm",
+        "webgl",
+        "ayar"
+      ],
+      "view": "settings",
+      "steps": [
+        "Üst bardaki «Tema · …» düğmesini açın.",
+        "Şebeke Atlası, Enerji Akışı, Kristal Panel, Topoğrafya veya Kontrol Odası’ndan birini seçin.",
+        "İsterseniz «Hareketli arka plan efektlerini kullan» kutusunu aç/kapatın.",
+        "Tema yalnızca bu tarayıcıda saklanır; rezervasyon, teminat, keşif ve kesin kayıt etkilenmez.",
+        "Aynı seçenekler Ayarlar → Arayüz Görünümü panelinde de vardır."
+      ],
+      "note": "Tema butonu bir «ayar menüsü» gibi görünür ama iş kuralı ayarı değildir; salt görünüm."
     }
   ],
   "tips": {
@@ -381,6 +403,34 @@
     "refresh": {
       "title": "Verileri yenile",
       "text": "Kaynakları tekrar tarar. Yeni/şüpheli veri için kontrol ve onay akışı gerekebilir."
+    },
+    "theme": {
+      "title": "Arayüz teması nedir?",
+      "text": "Yalnızca görsel görünüm (renk/arka plan). Hesaplama, yetki, kaynak ve kesin kaydı değiştirmez. Seçim bu bilgisayarda hatırlanır."
+    },
+    "themeAtlas": {
+      "title": "Şebeke Atlası",
+      "text": "Lacivert–turkuaz şebeke ağı görünümü. Varsayılan kurumsal tema."
+    },
+    "themeFlow": {
+      "title": "Enerji Akışı",
+      "text": "Kobalt–kehribar akış çizgileri. Daha canlı vurgulu görünüm."
+    },
+    "themePrism": {
+      "title": "Kristal Panel",
+      "text": "Mor–buz mavisi cam/prizma yüzeyleri."
+    },
+    "themeTerrain": {
+      "title": "Topoğrafya",
+      "text": "Yeşil kontur/arazi izleri. Daha sakin yeşil palet."
+    },
+    "themeControl": {
+      "title": "Kontrol Odası",
+      "text": "Grafit–yeşil radar tarama görünümü. Daha teknik, düşük parlaklık."
+    },
+    "themeMotion": {
+      "title": "Hareketli arka plan",
+      "text": "WebGL destekliyorsa üst başlık arkasında hafif animasyon. Kapatılırsa durağan kalır; veri/işlem etkilenmez."
     },
     "help": {
       "title": "İçerik yardımı",

@@ -315,9 +315,6 @@ function applyRecordSecurity(security){
   state.meta.recordSecurity=security||{sharedWritesEnabled:false,reason:'Merkezi kayıt hizmetinin durumu doğrulanamadı.'};
   updateDecisionRecordAvailability();
 }
-window.addEventListener('talep-service-access',e=>{
-  applyRecordSecurity(e.detail?.connected?e.detail.recordSecurity:null);
-});
 window.addEventListener('talep-source-access',updateDecisionRecordAvailability);
 function invalidateDecisionEvidence(reason){
   state.meta.evidenceEpoch=(state.meta.evidenceEpoch||0)+1;
@@ -333,15 +330,39 @@ function applySourceAccess(access){
   state.meta.sourceAccess=access||{current:false,reason:'Kaynak durumu doğrulanamadı.'};
   window.dispatchEvent(new CustomEvent('talep-source-access',{detail:state.meta.sourceAccess}));
 }
+// Health poll failures must NOT force salt-okunur. sourceAccess comes from /api/files.
+// Transient /api/health timeout was incorrectly locking UI while diagnosis stayed OK.
 window.addEventListener('talep-service-access',e=>{
-  if(!e.detail?.connected){applySourceAccess({...state.meta.sourceAccess,current:false,reason:'Yerel servis bağlantısı kesildi.'});renderCommon()}
+  state.meta.serviceConnected=!!e.detail?.connected;
+  if(e.detail?.connected)applyRecordSecurity(e.detail.recordSecurity||null);
+  // Disconnect: only clear write capability hint; do not flip sourceAccess.current.
+  else if(state.meta.recordSecurity?.sharedWritesEnabled){
+    applyRecordSecurity({sharedWritesEnabled:false,reason:'Yerel servis yanıtı geçici olarak alınamadı (kaynak erişimi korunuyor).'});
+  }
 });
 let sourceLoadInFlight=null;
 let backgroundSourceSyncScheduled=false;
 const sourceBookFingerprints=new Map();
+const sourceOpsLog=[];
 // [1] Progressive: first-screen priority; MB51/KESIFLER stay lazy API.
 const BOOT_PRIORITY_SOURCES=['TANIMLAR','ZMM048','ZMM098','MB52'];
 const LAZY_BOOK_SOURCES=new Set(['MB51','KESIFLER']);
+function logSourceOp(source,status,detail='',rows=null){
+  const ts=new Date().toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const line={ts,source:String(source||'—'),status:String(status||''),detail:String(detail||''),rows:rows==null?'':String(rows)};
+  sourceOpsLog.unshift(line);if(sourceOpsLog.length>80)sourceOpsLog.length=80;
+  const box=$('#sourceOpsLog');if(!box)return;
+  const row=document.createElement('div');
+  row.className='source-ops-line status-'+String(status||'').toLowerCase().replace(/[^a-z0-9_-]+/g,'');
+  row.innerHTML=`<span class="ops-ts">${esc(ts)}</span><span class="ops-src">${esc(line.source)}</span><span class="ops-st">${esc(line.status)}</span><span class="ops-rows">${line.rows!==''?esc(line.rows)+' satır':''}</span><span class="ops-detail">${esc(line.detail)}</span>`;
+  box.prepend(row);
+  while(box.children.length>60)box.removeChild(box.lastChild);
+  const term=$('#sourceOpsTerminal');if(term)term.hidden=false;
+}
+function initSourceOpsTerminal(){
+  const clear=$('#sourceOpsClear');if(clear)clear.onclick=()=>{sourceOpsLog.length=0;const box=$('#sourceOpsLog');if(box)box.innerHTML=''};
+  const toggle=$('#sourceOpsToggle');if(toggle)toggle.onclick=()=>{const term=$('#sourceOpsTerminal');if(!term)return;term.classList.toggle('collapsed');toggle.textContent=term.classList.contains('collapsed')?'▲':'▼'};
+}
 function loadSources(options={}){
   if(sourceLoadInFlight)return sourceLoadInFlight;
   sourceLoadInFlight=loadSourcesOnce(options).finally(()=>{sourceLoadInFlight=null});
@@ -381,6 +402,7 @@ async function loadSourcesOnce({initial=false,silent=false,forceScan=false}={}){
     setLoading(8,lightMeta?'Kaynak damgaları (hafif)…':'Kaynak taraması…',
       lightMeta?'ACTIVE önbellek / usable indeks · ağ taraması arka planda.':'Ağ/merkezi kaynak damgaları okunuyor.');
   }
+  logSourceOp('META',forceScan?'refresh':'light',lightMeta?'hafif /api/files':'/api/files',null);
   let snap;
   try{
     snap=await fetchSnapshot(forceScan,lightMeta);
@@ -390,14 +412,16 @@ async function loadSourcesOnce({initial=false,silent=false,forceScan=false}={}){
       console.warn('Boot snapshot fallback:',e);
       snap=emptyBootSnapshot(e.message||e);
       state.diagnostics.push({level:'warn',text:'Açılış fallback: '+(e.message||e)});
+      logSourceOp('META','timeout',e.message||e,0);
       if(!silent)setLoading(14,'Önbellek yok / zaman aşımı','İlk ekran açılıyor; senkron arka planda.');
     }else throw e;
   }
+  logSourceOp('META',snap.degraded?'degraded':'ok',snap.light?'ACTIVE-only':'full meta',Object.keys(snap.sources||{}).length);
   state.meta.roots=snap.roots||[];state.meta.externalRoot=snap.externalRoot||'';state.meta.bundledRoot=snap.bundledRoot||'';state.meta.dataEngine=snap.dataEngine||{};state.meta.sourceHealth=snap.sourceHealth||{};state.meta.pendingSourceUpdates=snap.pendingSourceUpdates||[];state.meta.freshnessWarnings=snap.freshnessWarnings||[];state.meta.releaseId=snap.releaseId||snap.sourceAccess?.diagnosis?.releaseId||'';state.meta.silentActiveAccept=snap.silentActiveAccept!==false;
   if(Array.isArray(snap.autoAccept)&&snap.autoAccept.length){
     const ok=snap.autoAccept.filter(x=>x.ok).map(x=>x.source);const bad=snap.autoAccept.filter(x=>!x.ok);
-    if(ok.length)toast(`Otomatik ACTIVE: ${ok.join(', ')}`,'success',5200);
-    bad.forEach(x=>toast(`${x.source} otomatik kabul hatası: ${x.error||'?'}`,'warn',6500));
+    if(ok.length){toast(`Otomatik ACTIVE: ${ok.join(', ')}`,'success',5200);ok.forEach(s=>logSourceOp(s,'accept','sessiz ACTIVE',null))}
+    bad.forEach(x=>{toast(`${x.source} otomatik kabul hatası: ${x.error||'?'}`,'warn',6500);logSourceOp(x.source,'accept-error',x.error||'?',null)});
   }
   applyRecordSecurity(snap.recordSecurity);
   const usable=!!(snap.dataEngine&&(snap.dataEngine.usable||snap.dataEngine.ready));
@@ -433,7 +457,10 @@ async function loadSourcesOnce({initial=false,silent=false,forceScan=false}={}){
       else prepared.push({src,file:{...info,status:'ok'},book:{},diagnostics:[]});
       continue;
     }
-    prepared.push(await prepareSourceBook(src,info));
+    const preparedOne=await prepareSourceBook(src,info);
+    prepared.push(preparedOne);
+    const rowCount=preparedOne.book?Object.values(preparedOne.book).reduce((n,rows)=>n+(Array.isArray(rows)?rows.length:0),0):0;
+    logSourceOp(src,preparedOne.file?.status||(isLazy?'lazy':'missing'),isLazy?'API/lazy':(FRIENDLY[src]||src),isLazy?null:rowCount);
   }
   if(!silent)setLoading(84,'Muaf listesi ve indeksler…','Aşama 4 · karar modeli hazırlanıyor.');
   await loadExemptions();
@@ -915,6 +942,14 @@ async function sourceUpdateChoice(choice){const item=sourceUpdateCurrent;if(!ite
 }
 async function selectSourceFile(source){const buttons=$$(`.source-change-btn[data-source="${source}"],.dc-source-change[data-source="${source}"]`);buttons.forEach(b=>b.disabled=true);try{const data=await fetchApiJson('/api/source-select-file',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source})},330000);if(data.cancelled)return;toast(`${sourceUpdateLabel(source)} için yeni kaynak seçildi; sessiz ACTIVE accept uygulanacak.`,'info',6500);await loadSources({silent:true,forceScan:true});const item=(state.meta.pendingSourceUpdates||[]).find(x=>x.source===source);if(item&&state.meta.silentActiveAccept===false)openSourceUpdateModal(item);if($('#dataCenterView')?.classList.contains('active'))await loadDataCenter()}catch(e){toast('Kaynak dosyası seçilemedi: '+e.message,'error',7000)}finally{buttons.forEach(b=>b.disabled=false)}}
 function bindSourceHealthActions(root=document){root.querySelectorAll?.('.source-change-btn').forEach(b=>b.onclick=()=>selectSourceFile(b.dataset.source));root.querySelectorAll?.('.source-pending-review').forEach(b=>b.onclick=()=>{const item=(state.meta.pendingSourceUpdates||[]).find(x=>x.source===b.dataset.source);if(item)openSourceUpdateModal(item)})}
+function isDataCenterActive(){return !!$('#dataCenterView')?.classList.contains('active')}
+function syncSourceHealthPanelVisibility(){
+  const details=$('#dataHealthDetails');
+  if(!details)return;
+  // Full health/teşhis table only on Veri Merkezi — not every menu.
+  details.hidden=!isDataCenterActive();
+  if(isDataCenterActive())details.open=true;
+}
 function renderCommon(){
   const diag=state.meta.sourceAccess?.diagnosis||{};
   const fresh=(state.meta.freshnessWarnings||[]).map(w=>`<div class="inline-warn"><strong>Güncellik</strong> · ${esc(w.message||'')}</div>`).join('');
@@ -922,15 +957,15 @@ function renderCommon(){
   const net=state.meta.sourceAccess?.current&&state.meta.sourceAccess?.networkNote?`<div class="inline-warn"><strong>Merkezi kayıt</strong> · ${esc(state.meta.sourceAccess.networkNote)}</div>`:'';
   const banner=$('#sourceAccessBanner');
   if(banner){
+    // Compact alerts on all pages; full table stays in Veri Merkezi.
     const html=`${diagBlock}${fresh}${net}`;
     banner.innerHTML=html;
     banner.hidden=!html;
     if(diag.logLine)try{console.info(diag.logLine)}catch(_){}
   }
-  const details=$('#dataHealthDetails');
-  if(details)details.open=!(!state.meta.sourceAccess?.current)||!!(state.meta.freshnessWarnings||[]).length;
+  syncSourceHealthPanelVisibility();
   const health=$('#dataHealth');
-  if(health){
+  if(health&&isDataCenterActive()){
     const healthItems=state.meta.sourceHealth?.sources||[];const hmap=new Map(healthItems.map(x=>[String(x.source||'').toUpperCase(),x]));
     const pendingMap=new Map((state.meta.pendingSourceUpdates||[]).map(x=>[String(x.source||'').toUpperCase(),x]));
     const rows=['ZMM048','MB51','MB52','ZMM098','TESIS','KET','BAKIM','LED'].map(src=>{const h=hmap.get(src)||(['TESIS','KET','BAKIM','LED'].includes(src)?(hmap.get('KESIFLER')||{}):{}),level=String(h.health||(!state.files[src]&&['ZMM048','MB51','MB52','ZMM098'].includes(src)?'CRITICAL':'NORMAL')).toUpperCase(),p=pendingMap.get(src);return `<tr><td><strong>${esc(FRIENDLY[src]||src)}</strong></td><td class="health-state-cell"><span class="health-state-dot normal ${level==='NORMAL'?'on':'off'}">${level==='NORMAL'?'Normal':'—'}</span></td><td class="health-state-cell"><span class="health-state-dot warning ${level==='WARNING'?'on':'off'}">${level==='WARNING'?'Uyarı':'—'}</span></td><td class="health-state-cell"><span class="health-state-dot critical ${level==='CRITICAL'?'on':'off'}">${level==='CRITICAL'?'Kritik':'—'}</span></td><td>${h.age_hours!=null?Number(h.age_hours).toFixed(1)+' sa':'—'}</td><td>${p?`<button class="dc-pending-btn source-pending-review" data-source="${esc(src)}" type="button">Yeni veri bekliyor</button>`:'—'}</td><td><button class="source-health-action source-change-btn" data-source="${esc(src)}" type="button">Kaynak Dosyasını Değiştir</button></td></tr>`}).join('');
@@ -1574,7 +1609,7 @@ function clearDecisionResults(){
   const status=$('#overallStatus');if(status)status.innerHTML=badge('Henüz kontrol edilmedi','neutral');
   state.ui.lastDecisionCheckToken='';state.ui.savedDecisionCheckToken='';state.ui.lastSavedControlId='';state.ui.lastDecisionRecordPayload=null;
   const saveStatus=$('#decisionSaveStatus');if(saveStatus){saveStatus.className='decision-save-status muted';saveStatus.textContent='Kontrol sonucu henüz kayıt altına alınmadı.'}
-  const saveBtn=$('#saveDecisionRecord');if(saveBtn){saveBtn.disabled=false;saveBtn.textContent='Kontrolü Onayla ve Kaydet'}
+  const saveBtn=$('#saveDecisionRecord');if(saveBtn){saveBtn.disabled=false;saveBtn.textContent='Kesin Kayıt (CSV)'}
   closeDecisionModal();
 }
 function itemDecisionResultTable(ctx){
@@ -1756,7 +1791,7 @@ function buildControlRecordPayload(){
 function utf8ToBase64(text){const bytes=new TextEncoder().encode(text);let binary='';const chunk=0x8000;for(let i=0;i<bytes.length;i+=chunk)binary+=String.fromCharCode(...bytes.subarray(i,i+chunk));return btoa(binary)}
 function resetDecisionSaveState(){
   state.ui.lastDecisionCheckToken=`${Date.now()}-${Math.random().toString(36).slice(2,9)}`;state.ui.savedDecisionCheckToken='';state.ui.lastSavedControlId='';
-  const btn=$('#saveDecisionRecord'),status=$('#decisionSaveStatus');if(btn){btn.disabled=!!finalRecordUnavailableReason();btn.textContent='Kontrolü Onayla ve Kaydet'}if(status){status.className='decision-save-status muted';status.textContent='Kontrol sonucu henüz kayıt altına alınmadı.'}
+  const btn=$('#saveDecisionRecord'),status=$('#decisionSaveStatus');if(btn){btn.disabled=!!finalRecordUnavailableReason();btn.textContent='Kesin Kayıt (CSV)'}if(status){status.className='decision-save-status muted';status.textContent='Kontrol sonucu henüz kayıt altına alınmadı.'}
   updateDecisionRecordAvailability();
 }
 async function confirmCurrentRecordRevision(reservationNo){
@@ -1841,7 +1876,7 @@ async function saveDecisionRecord(){
   try{const body=JSON.stringify({payloadBase64:utf8ToBase64(JSON.stringify(payload)),allowRepeat:revisionCheck.allowRepeat,expectedPreviousControlId:revisionCheck.previousId});const res=await fetch('/api/save-control',{method:'POST',headers:{'Content-Type':'application/json'},body,cache:'no-store'});const data=await res.json().catch(()=>({}));
     if(res.status===409&&data.code==='RESERVATION_ALREADY_CONTROLLED'){
       state.ui.reservationRecordHistory=data.history||null;state.ui.repeatControlAllowed=false;
-      if(btn){btn.disabled=false;btn.textContent='Kontrolü Onayla ve Kaydet'}if(status){status.className='decision-save-status bad';status.textContent='Rezervasyon daha önce kaydedilmiş. Yeniden kontrol onayı gereklidir.'}
+      if(btn){btn.disabled=false;btn.textContent='Kesin Kayıt (CSV)'}if(status){status.className='decision-save-status bad';status.textContent='Rezervasyon daha önce kaydedilmiş. Yeniden kontrol onayı gereklidir.'}
       toast('Bu rezervasyon daha önce kaydedilmiş. Önce “Tekrar Kontrol Et” onayıyla kontrolü yeniden çalıştırın.','warn',7000);return;
     }
     if(!res.ok||!data.ok)throw new Error(data.error||`Kayıt servisi ${res.status} hatası verdi.`);state.ui.savedDecisionCheckToken=state.ui.lastDecisionCheckToken;state.ui.lastSavedControlId=data.controlId||'';
@@ -1849,7 +1884,7 @@ async function saveDecisionRecord(){
     const recs=Array.isArray(data.mb51Reconciliation)?data.mb51Reconciliation:[],mismatch=recs.filter(x=>x.status==='FIILI_MIKTAR_FARKI').length,mutabik=recs.filter(x=>x.status==='MUTABIK').length,waiting=recs.filter(x=>x.status==='MB51_BEKLENIYOR').length;if(btn){btn.disabled=true;btn.textContent='Kontrol Kaydedildi'}if(status){status.className='decision-save-status ok';status.textContent=`Kaydedildi · ${data.controlId||''}${revision} · ${ds.ONAYLA} onay / ${ds.ONAYLAMA} onaylama / ${ds.BEKLET} beklet · MB51: ${mutabik} mutabık / ${mismatch} fark / ${waiting} bekliyor${data.recordRoot?' · '+data.recordRoot:''}`;status.title=data.recordRoot||''}toast(`Kalem bazlı karar kaydedildi · ${ds.ONAYLA} onay / ${ds.ONAYLAMA} onaylama / ${ds.BEKLET} beklet${revision}.`);loadNotifications(true).catch(()=>{});
     if(state.ui.mode==='reservation'&&state.ui.reservationNo){try{state.ui.reservationRecordHistory=await fetchReservationControlHistory(state.ui.reservationNo,{notify:false});state.ui.repeatControlAllowed=false;updateReservationHistorySummary(state.ui.reservationRecordHistory)}catch(_){} }
     setTimeout(()=>{const mode=state.ui.mode;closeDecisionModal();if(mode==='reservation')clearReservation();else clearManual();state.ui.lastDecisionRecordPayload=null;resetDecisionSaveState();toast('Kayıt tamamlandı. Takip ekranı yeni kontrol için temizlendi.','success')},450);
-  }catch(e){console.error(e);if(btn){btn.disabled=false;btn.textContent='Kontrolü Onayla ve Kaydet'}if(status){status.className='decision-save-status bad';status.textContent='Kayıt başarısız: '+e.message}toast('CSV kayıt hatası: '+e.message,'error',6500)}finally{state.ui.recordSaving=false;updateDecisionRecordAvailability()}
+  }catch(e){console.error(e);if(btn){btn.disabled=false;btn.textContent='Kesin Kayıt (CSV)'}if(status){status.className='decision-save-status bad';status.textContent='Kayıt başarısız: '+e.message}toast('CSV kayıt hatası: '+e.message,'error',6500)}finally{state.ui.recordSaving=false;updateDecisionRecordAvailability()}
 }
 function exportDecisionAsExcel(){
   const payload=buildDecisionExportPayload();if(!payload)return toast('Dışa aktarılacak karar sonucu bulunamadı.');
@@ -3286,6 +3321,8 @@ const controlRecordState={page:1,pageSize:50,total:0,pages:1,loading:false};
 function activateStandaloneView(viewId){
   $$('.view').forEach(v=>v.classList.remove('active'));const v=$('#'+viewId);if(v)v.classList.add('active');
   $$('.nav-item').forEach(x=>{const target=viewId==='settingsView'?'settings':viewId==='dataCenterView'?'data-center':'decision';x.classList.toggle('active',x.dataset.view===target)});
+  syncSourceHealthPanelVisibility();
+  if(isDataCenterActive())renderCommon();
   window.scrollTo({top:0,behavior:'smooth'});
 }
 function showControlRecords(){activateStandaloneView('recordsView');loadControlRecords(true)}
@@ -3370,7 +3407,7 @@ function renderNotifications(){
   if($('#notifCriticalCount'))$('#notifCriticalCount').textContent=data.criticalCount||0;if($('#notifWarningCount'))$('#notifWarningCount').textContent=data.warningCount||0;if($('#notifInfoCount'))$('#notifInfoCount').textContent=data.infoCount||0;
   $$('[data-notif-filter]').forEach(b=>b.classList.toggle('active',String(b.dataset.notifFilter||'')===notificationFilter));
   const filtered=items.filter(n=>{const f=notificationFilter.toUpperCase();if(!f)return n.status==='OPEN';if(f==='HISTORY')return n.status!=='OPEN'&&n.status!=='CLEARED';return n.status==='OPEN'&&(String(n.severity||'').toUpperCase()===f||String(n.category||'').toUpperCase()===f)}),list=$('#notificationList');if(!list)return;
-  list.innerHTML=filtered.length?filtered.map(n=>{const sev=String(n.severity||'INFO').toUpperCase(),meta=n.meta||{},actions=Array.isArray(n.actions)?n.actions:[];const detail=[meta.depot&&`Depo: ${meta.depot}`,meta.projectName&&`Proje: ${meta.projectName}`,meta.reservationNo&&`Rezervasyon: ${meta.reservationNo}`,meta.materialCode&&`Malzeme: ${meta.materialCode}`,meta.count!=null&&`Adet: ${meta.count}`].filter(Boolean).join(' · ');return `<article class="notification-card ${sev}${n.read?' read':''}"><div class="notification-card-head"><span class="notification-level ${sev}">${esc(notificationSeverityLabel(n.severity))}</span><span class="notification-category">${esc(notificationCategoryLabel(n.category))}</span><small>${dcFormatTime(n.updatedAt||n.createdAt)}</small></div><h4>${esc(n.title||'Bildirim')}</h4><p>${esc(n.message||'')}</p>${detail?`<div class="notification-meta">${esc(detail)}</div>`:''}<div class="notification-actions">${actions.map((a,i)=>`<button class="btn ${i===0?'btn-primary':'btn-ghost'} notif-nav-action" type="button" data-id="${esc(n.id)}" data-action="${esc(a.action||'')}" data-depot="${esc(a.depot||meta.depot||'')}" data-work-code="${esc(a.workCode||meta.workCode||'')}">${esc(a.label||'Aç')}</button>`).join('')}<button class="btn btn-ghost notif-state-action" type="button" data-id="${esc(n.id)}" data-state-action="READ">Okundu</button><button class="btn btn-ghost notif-state-action" type="button" data-id="${esc(n.id)}" data-state-action="RESOLVE">Çözüldü</button></div></article>`}).join(''):'<div class="notification-empty">Bu filtrede açık bildirim bulunmuyor.</div>';
+  list.innerHTML=filtered.length?filtered.map(n=>{const sev=String(n.severity||'INFO').toUpperCase(),meta=n.meta||{},actions=Array.isArray(n.actions)?n.actions:[];const detail=[meta.depot&&`Depo: ${meta.depot}`,meta.projectName&&`Proje: ${meta.projectName}`,meta.reservationNo&&`Rezervasyon: ${meta.reservationNo}`,meta.materialCode&&`Malzeme: ${meta.materialCode}`,meta.count!=null&&`Adet: ${meta.count}`].filter(Boolean).join(' · ');return `<article class="notification-card ${sev}${n.read?' read':''}"><div class="notification-card-head"><span class="notification-level ${sev}">${esc(notificationSeverityLabel(n.severity))}</span><span class="notification-category">${esc(notificationCategoryLabel(n.category))}</span><small>${dcFormatTime(n.updatedAt||n.createdAt)}</small></div><h4>${esc(n.title||'Bildirim')}</h4><p>${esc(n.message||'')}</p>${detail?`<div class="notification-meta">${esc(detail)}</div>`:''}<div class="notification-actions">${actions.map((a,i)=>`<button class="btn ${i===0?'btn-primary':'btn-ghost'} notif-nav-action" type="button" data-id="${esc(n.id)}" data-action="${esc(a.action||'')}" data-depot="${esc(a.depot||meta.depot||'')}" data-work-code="${esc(a.workCode||meta.workCode||'')}" data-reservation-no="${esc(a.reservationNo||meta.reservationNo||'')}" data-material-code="${esc(a.materialCode||meta.materialCode||'')}">${esc(a.label||'Aç')}</button>`).join('')}<button class="btn btn-ghost notif-state-action" type="button" data-id="${esc(n.id)}" data-state-action="READ">Okundu</button><button class="btn btn-ghost notif-state-action" type="button" data-id="${esc(n.id)}" data-state-action="RESOLVE">Çözüldü</button></div></article>`}).join(''):'<div class="notification-empty">Bu filtrede açık bildirim bulunmuyor.</div>';
   $$('.notif-state-action').forEach(b=>b.onclick=()=>updateNotificationState(b.dataset.id,b.dataset.stateAction));$$('.notif-nav-action').forEach(b=>b.onclick=()=>navigateNotificationAction(b.dataset.action,b.dataset));
 }
 async function loadNotifications(silent=false){
@@ -3383,8 +3420,30 @@ async function clearNotifications(){const ok=window.confirm('Bilgi ve geçmiş b
 function activateWorkView(code,depot=''){
   const view=Object.entries(WORK_VIEW_CODES).find(([,v])=>v===code)?.[0];const nav=view?document.querySelector(`.nav-item[data-view="${view}"]`):null;if(nav){nav.click();setTimeout(()=>{if(depot)workOpsSelectDepot(code,depot)},350)}
 }
+function openReservationForFinalRecord(reservationNo,materialCode=''){
+  const no=String(reservationNo||'').trim();
+  if(!no){showControlRecords();toast('Rezervasyon numarası yok; kontrol kayıtlarından bakın.','warn',6500);return}
+  backToDecision();
+  setControlMode('reservation');
+  openReservationByNo(no);
+  const tip=[
+    `Rezervasyon ${no} açıldı.`,
+    materialCode?`Malzeme ${materialCode}: kalem kararını ONAYLA yapın.`:'İlgili kalemde karar verin (ONAYLA).',
+    'Kontrol Et → sonuçta «Kesin Kayıt (CSV)» ile kaydedin.',
+    '«Kontrol Kayıtları» yalnız geçmişi gösterir; kesin kayıt oradan yapılmaz.'
+  ].join(' ');
+  toast(tip,'info',12000,'Kesin kayıt adımları');
+  logSourceOp('KAYIT','guide',`Rezervasyon ${no} · kesin kayıt akışı`,0);
+}
 function navigateNotificationAction(action,dataset={}){
-  const a=String(action||'').toUpperCase();closeNotificationDrawer();if(a==='OPEN_DATA_CENTER'){showDataCenter();setDcTab('health');return}if(a==='OPEN_RECORDS'){showControlRecords();return}if(a==='OPEN_TESIS'){activateWorkView('T',dataset.depot||'');if(dataset.reservationNo){try{setControlMode('reservation');const inp=$('#reservationSearch');if(inp)inp.value=dataset.reservationNo;renderReservation(dataset.reservationNo)}catch(_){}}return}if(a==='OPEN_WORK'){activateWorkView(dataset.workCode||'',dataset.depot||'');return}
+  const a=String(action||'').toUpperCase();
+  const resNo=dataset.reservationNo||dataset.reservationno||'';
+  closeNotificationDrawer();
+  if(a==='OPEN_DATA_CENTER'){showDataCenter();setDcTab('health');return}
+  if(a==='OPEN_RESERVATION'||a==='OPEN_FINAL_RECORD'){openReservationForFinalRecord(resNo,dataset.materialCode||'');return}
+  if(a==='OPEN_RECORDS'){showControlRecords();toast('Kontrol Kayıtları geçmiş görüntülemedir. Yeni kesin kayıt için rezervasyonu açıp Kontrol Et → Kesin Kayıt kullanın.','info',9000);return}
+  if(a==='OPEN_TESIS'){activateWorkView('T',dataset.depot||'');if(resNo){try{setControlMode('reservation');openReservationByNo(resNo)}catch(_){}}return}
+  if(a==='OPEN_WORK'){activateWorkView(dataset.workCode||'',dataset.depot||'');return}
 }
 
 function addNewProjectDiscoveryRow(row={}){
@@ -3553,7 +3612,9 @@ function initEvents(){
   };
   $('#runCheckBtn').onclick=runCheck;$('#clearReservationBtn').onclick=clearReservation;
   $('#decisionModalClose').onclick=closeDecisionModal;$('#decisionModalDone').onclick=closeDecisionModal;
+  initSourceOpsTerminal();
   $('#saveDecisionRecord').onclick=saveDecisionRecord;$('#exportDecisionExcel').onclick=exportDecisionAsExcel;$('#exportDecisionPdf').onclick=exportDecisionAsPdf;$('#exportDecisionJpg').onclick=exportDecisionAsJpg;
+  if($('#saveDecisionRecord')){$('#saveDecisionRecord').textContent='Kesin Kayıt (CSV)';$('#saveDecisionRecord').title='Kesin kayıt: kontrol sonucunu CSV arşivine yazar. SAP onayı değildir. Kontrol Kayıtları yalnız geçmiş görüntüler.';}
   $('#decisionResultModal').onclick=e=>{if(e.target===$('#decisionResultModal'))closeDecisionModal()};
   document.addEventListener('click',e=>{const target=e.target instanceof Element?e.target:null;if(!target)return;if(!target.closest('.reservation-search-field')&&!target.closest('#reservationLookupBtn'))closeReservationSearch();if(!target.closest('.manual-depot-search-field'))closeManualDepotSearch();if(!target.closest('.manual-material-search-field'))closeManualMaterialSearch();if(!target.closest('#manualContextMenu'))hideManualContextMenu();if(!target.closest('#dashboardCompanyCombo'))closeDashboardFilterResults('company');if(!target.closest('#dashboardDepotCombo'))closeDashboardFilterResults('depot')});
   document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;if(!$('#repeatControlModal').hidden)closeRepeatControlModal(false);else if(!$('#recordDetailModal').hidden)closeRecordDetail();else if(!$('#decisionResultModal').hidden)closeDecisionModal()});

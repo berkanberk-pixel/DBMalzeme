@@ -1168,21 +1168,40 @@ def build_notifications(force_mb51=False):
                     rec=_mb51_reconcile(res,mat,approved,mb51_reconciliation.header_scope(r,group['uom']))
                     if not rec.get('verified'):
                         cid=str(r.get('KontrolID') or path.stem)
-                        _notif_upsert(d,f'MB51-UNVERIFIED-{cid}-{mat}','MB51 doğrulanamadı',str(rec.get('error') or ''),'CRITICAL','MB51',{'controlId':cid,'reservationNo':res,'materialCode':mat,**rec},[{'label':'Kayıtlar','action':'OPEN_RECORDS'}])
+                        _notif_upsert(d,f'MB51-UNVERIFIED-{cid}-{mat}','MB51 doğrulanamadı',str(rec.get('error') or ''),'CRITICAL','MB51',{'controlId':cid,'reservationNo':res,'materialCode':mat,**rec},[
+                            {'label':'Rezervasyonu aç · kesin kayıt','action':'OPEN_RESERVATION','reservationNo':res,'materialCode':mat},
+                            {'label':'Kontrol kayıtları (geçmiş)','action':'OPEN_RECORDS'},
+                        ])
                         continue
                     cid=str(r.get('KontrolID') or path.stem)
                     if decision!='ONAYLA' and rec.get('found') and float(rec.get('actualQty') or 0)>0:
-                        _notif_upsert(d,f'UNAPPROVED-{cid}-{mat}','Onaysız kalemde MB51',f'{res} / {mat}: fiili hareket var.','CRITICAL','MB51',{'controlId':cid,'reservationNo':res,'materialCode':mat,**rec},[{'label':'Kayıtlar','action':'OPEN_RECORDS'}])
+                        _notif_upsert(
+                            d,f'UNAPPROVED-{cid}-{mat}','Onaysız kalemde MB51',
+                            f'{res} / {mat}: MB51’de fiili hareket var ama kalem ONAYLA değil. '
+                            f'Kesin kayıt: Rezervasyonu aç → kalemi ONAYLA → Kontrol Et → «Kesin Kayıt (CSV)». '
+                            f'«Kontrol Kayıtları» yalnız geçmiş görüntüler.',
+                            'CRITICAL','MB51',{'controlId':cid,'reservationNo':res,'materialCode':mat,**rec},
+                            [
+                                {'label':'Rezervasyonu aç · kesin kayıt','action':'OPEN_RESERVATION','reservationNo':res,'materialCode':mat},
+                                {'label':'Kontrol kayıtları (geçmiş)','action':'OPEN_RECORDS'},
+                            ])
                     elif decision=='ONAYLA' and rec.get('found') and rec.get('status')=='FIILI_MIKTAR_FARKI':
                         is_tesis=revision_runtime.is_tesis_work(r.get('IsTuru'))
                         target=str(r.get('HedefDepo') or '').strip()
                         # [7] Tesis → proje dağılımı balonu
                         title='TESİS: proje dağılımı gerekli' if is_tesis else 'MB51 ≠ onay'
-                        actions=[{'label':'Proje dağılımı','action':'OPEN_TESIS','depot':target,'reservationNo':res},{'label':'Kayıtlar','action':'OPEN_RECORDS'}] if is_tesis else [{'label':'Kayıtlar','action':'OPEN_RECORDS'}]
+                        actions=[{'label':'Proje dağılımı','action':'OPEN_TESIS','depot':target,'reservationNo':res},
+                                 {'label':'Rezervasyonu aç · kesin kayıt','action':'OPEN_RESERVATION','reservationNo':res,'materialCode':mat},
+                                 {'label':'Kontrol kayıtları (geçmiş)','action':'OPEN_RECORDS'}] if is_tesis else [
+                                 {'label':'Rezervasyonu aç · kesin kayıt','action':'OPEN_RESERVATION','reservationNo':res,'materialCode':mat},
+                                 {'label':'Kontrol kayıtları (geçmiş)','action':'OPEN_RECORDS'}]
                         _notif_upsert(d,f'MISMATCH-{cid}-{mat}',title,f'{mat}: onay {approved:g}, fiili {float(rec.get("actualQty") or 0):g}.'+(' Dağıtın.' if is_tesis else ''),'WARNING','MB51',{'controlId':cid,'reservationNo':res,'materialCode':mat,'depot':target,'approvedQty':approved,'requiresProjectRedistribution':is_tesis,**rec},actions)
                     elif decision=='ONAYLA' and revision_runtime.mb51_realized(rec) and not revision_runtime.is_tesis_work(r.get('IsTuru')):
                         # [3] Tesis dışı gerçekleşme adayı bildirimi
-                        _notif_upsert(d,f'AUTO-FINAL-{cid}-{mat}','MB51 gerçekleşti — otomatik kesin kayıt',f'{res} / {mat}: önceki karar + MB51 fiili doğrulandı.','INFO','MB51',{'controlId':cid,'reservationNo':res,'materialCode':mat,'autoFinalCandidate':True,**rec},[{'label':'Kayıtlar','action':'OPEN_RECORDS'}])
+                        _notif_upsert(d,f'AUTO-FINAL-{cid}-{mat}','MB51 gerçekleşti — otomatik kesin kayıt',f'{res} / {mat}: önceki karar + MB51 fiili doğrulandı.','INFO','MB51',{'controlId':cid,'reservationNo':res,'materialCode':mat,'autoFinalCandidate':True,**rec},[
+                            {'label':'Rezervasyonu aç','action':'OPEN_RESERVATION','reservationNo':res,'materialCode':mat},
+                            {'label':'Kontrol kayıtları (geçmiş)','action':'OPEN_RECORDS'},
+                        ])
         except Exception: pass
     _save_notif_state(d)
     items=list(d['items'].values());items.sort(key=lambda x:(x.get('status')!='OPEN',x.get('read',False),x.get('updatedAt','')),reverse=False)

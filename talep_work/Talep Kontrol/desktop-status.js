@@ -10,6 +10,8 @@
   let checking = false;
   let previous = null;
   let dismissed = false;
+  let failCount = 0;
+  const FAIL_LOCK = 3; // transient /api/health blips must not flip UI to offline
   const set = (kind, heading, body, quiet = false) => {
     el.dataset.kind = kind;
     title.textContent = heading;
@@ -28,13 +30,14 @@
     if(checking)return;checking=true;
     try {
       const ctrl = new AbortController();
-      const timeout = setTimeout(() => ctrl.abort(), 7000);
+      const timeout = setTimeout(() => ctrl.abort(), 15000);
       let response;
       try { response = await fetch('/api/health?gui=' + Date.now(), {cache:'no-store',signal:ctrl.signal}); }
       finally { clearTimeout(timeout); }
       if (!response.ok) throw new Error('HTTP ' + response.status);
       const status = await response.json();
       if (!status.ok || status.app !== 'Talep Kontrol') throw new Error('Uygulama servisi doğrulanamadı.');
+      failCount = 0;
       window.dispatchEvent(new CustomEvent('talep-service-access',{detail:{connected:true,recordSecurity:status.recordSecurity}}));
       if (previous === 'offline') notify('Yerel uygulama hizmetine yeniden bağlanıldı.', 'success');
       const writes = status.recordSecurity?.sharedWritesEnabled === true;
@@ -53,10 +56,18 @@
         set('success', 'Sistem bağlantısı sağlıklı', 'Yerel uygulama servisine bağlanıldı.', true);
       }
     } catch (error) {
-      window.dispatchEvent(new CustomEvent('talep-service-access',{detail:{connected:false}}));
-      if (previous !== 'offline') dismissed = false;
-      previous = 'offline';
-      set('error','Bağlantı kesildi','Uygulama hizmeti yanıt vermiyor. Görüntülenen sonuçlar güncel olmayabilir; yeniden bağlanınca kontrolü tekrarlayın.');
+      failCount += 1;
+      if (failCount < FAIL_LOCK) {
+        // Soft warn only — do not dispatch connected:false (false salt-okunur).
+        if (previous !== 'offline') {
+          set('warning','Bağlantı kontrolü gecikti','Yerel servis yanıtı yavaş. Kaynak erişimi korunuyor; tekrar denenecek.');
+        }
+      } else {
+        window.dispatchEvent(new CustomEvent('talep-service-access',{detail:{connected:false}}));
+        if (previous !== 'offline') dismissed = false;
+        previous = 'offline';
+        set('error','Bağlantı kesildi','Uygulama hizmeti yanıt vermiyor. Görüntülenen sonuçlar güncel olmayabilir; yeniden bağlanınca kontrolü tekrarlayın.');
+      }
     } finally { checking=false; }
   }
   window.addEventListener('talep-source-access',e=>{sourceAccess=e.detail;dismissed=false;if(previous==='offline')return;if(sourceAccess?.current===false){const d=sourceAccess.diagnosis||{};const detail=[d.reasonCode,(d.missing||[]).length?('eksik:'+(d.missing||[]).join(',')):''].filter(Boolean).join(' · ');set('warning','Salt okunur görünüm',(sourceAccess.reason||'Kaynak güncelliği doğrulanamadı.')+(detail?' ['+detail+']':''))}else checkHealth()});

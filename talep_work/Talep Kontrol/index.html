@@ -1320,7 +1320,7 @@
           <span id="decisionSaveStatus" class="decision-save-status muted" aria-live="polite">Kontrol sonucu henüz kayıt altına alınmadı.</span>
         </div>
         <div class="decision-export-actions">
-          <button id="saveDecisionRecord" class="btn btn-save-record" type="button" title="Kontrol sonucunu CSV arşivine kaydeder; SAP onayı değildir.">Kontrolü Onayla ve Kaydet</button>
+          <button id="saveDecisionRecord" class="btn btn-save-record" type="button" title="Kesin kayıt: kontrol sonucunu CSV arşivine yazar. SAP onayı değildir. Kontrol Kayıtları ekranı yalnız geçmiş görüntüler.">Kesin Kayıt (CSV)</button>
           <button id="exportDecisionExcel" class="btn btn-export-excel" type="button">Excel’e Aktar</button>
           <button id="exportDecisionPdf" class="btn btn-export-pdf" type="button">PDF’e Aktar</button>
           <button id="exportDecisionJpg" class="btn btn-export-jpg" type="button">JPG’e Aktar</button>
@@ -1384,6 +1384,17 @@
   </div>
 
   <div id="toastStack" class="toast-stack" aria-live="polite" aria-atomic="false"></div>
+  <aside id="sourceOpsTerminal" class="source-ops-terminal" aria-label="Kaynak işlem izi" hidden>
+    <header class="source-ops-head">
+      <strong>Kaynak işlemleri</strong>
+      <span class="muted small">Durum · satır · zaman</span>
+      <div class="source-ops-actions">
+        <button id="sourceOpsClear" type="button" class="btn btn-ghost" title="İzi temizle">Temizle</button>
+        <button id="sourceOpsToggle" type="button" class="btn btn-ghost" title="Daralt/genişlet">▼</button>
+      </div>
+    </header>
+    <div id="sourceOpsLog" class="source-ops-log" role="log" aria-live="polite"></div>
+  </aside>
   <aside id="tkDesktopStatus" class="tk-desktop-status" role="status" aria-live="polite" hidden><span id="tkDesktopStatusIcon" aria-hidden="true">ⓘ</span><div><strong id="tkDesktopStatusTitle">Sistem durumu</strong><p id="tkDesktopStatusMessage"></p></div><button type="button" id="tkDesktopStatusClose" aria-label="Bildirimleri küçült">×</button></aside>
   <script src="export-utils.js?v=20261116"></script>
   <script src="app.js?v=20261116"></script>

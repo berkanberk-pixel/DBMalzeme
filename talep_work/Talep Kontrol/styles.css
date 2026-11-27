@@ -1413,7 +1413,21 @@ body.ui-reference-20260928 #decisionView .data-health{display:block!important;ma
 .source-access-banner:empty,.source-access-banner[hidden]{display:none}
 .source-access-diag{margin-top:.35rem;font-size:.92em;opacity:.95;font-family:ui-monospace,Consolas,monospace}
 .source-health-details{margin:0 18px 12px;padding:8px 12px;border:1px solid #e0e8f3;border-radius:12px;background:#f9fbfe}
+.source-health-details[hidden]{display:none!important}
 .source-health-details>summary{cursor:pointer;font-size:12px;font-weight:700;color:#17356b;list-style:inside}
+.source-ops-terminal{position:fixed;left:18px;right:18px;bottom:10px;z-index:1600;max-height:168px;display:flex;flex-direction:column;border:1px solid #1d3a55;border-radius:12px;background:rgba(8,22,36,.94);color:#d7e6f2;box-shadow:0 14px 36px rgba(3,12,22,.35);font:11px/1.35 ui-monospace,Consolas,monospace}
+.source-ops-terminal[hidden]{display:none!important}
+.source-ops-terminal.collapsed{max-height:42px}
+.source-ops-terminal.collapsed .source-ops-log{display:none}
+.source-ops-head{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid rgba(120,170,210,.22)}
+.source-ops-head strong{font-size:12px;letter-spacing:.02em}
+.source-ops-actions{margin-left:auto;display:flex;gap:6px}
+.source-ops-actions .btn{min-height:28px;padding:4px 8px;font-size:10px;color:#d7e6f2;border-color:rgba(140,180,210,.35);background:transparent}
+.source-ops-log{overflow:auto;padding:6px 10px 10px;max-height:120px}
+.source-ops-line{display:grid;grid-template-columns:64px 88px 88px 72px 1fr;gap:8px;padding:3px 0;border-bottom:1px solid rgba(120,160,200,.12)}
+.source-ops-line .ops-ts{color:#7ea0bb}.source-ops-line .ops-src{color:#9fd3ff;font-weight:700}.source-ops-line .ops-st{color:#b8f0c8}.source-ops-line .ops-rows{color:#f0d59a}.source-ops-line .ops-detail{color:#c5d5e4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.source-ops-line.status-timeout .ops-st,.source-ops-line.status-accept-error .ops-st,.source-ops-line.status-bad .ops-st{color:#ff9aa8}
+@media(max-width:760px){.source-ops-terminal{left:10px;right:10px}.source-ops-line{grid-template-columns:52px 70px 70px 1fr}.source-ops-line .ops-rows{display:none}}
 .diagnostics-panel{margin-top:8px;font-size:12px;color:#4a5d73}
 .inline-warn{margin:0 0 10px;padding:10px 12px;border:1px solid #f1d394;border-left:4px solid #a46000;border-radius:10px;background:#fff8e8;color:#7a4a00;font-size:12px}
 .source-health-inline{background:#fff;border:1px solid #e0e8f3;border-radius:14px;box-shadow:0 6px 18px rgba(32,63,103,.045);overflow:hidden}
