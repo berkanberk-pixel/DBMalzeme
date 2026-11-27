@@ -1,4 +1,4 @@
-"""GUI boot: talep-ui-ready must not wait for UNC full load (Halit 5dk timeout)."""
+"""GUI boot: progressive [1] + native splash navigationReady (Halit)."""
 import re
 import unittest
 from pathlib import Path
@@ -7,13 +7,24 @@ ROOT = Path(__file__).resolve().parents[1] / 'Talep Kontrol'
 
 
 class BootHandoffTests(unittest.TestCase):
-    def test_app_signals_ready_before_full_load(self):
+    def test_app_signals_ready_before_source_load(self):
         js = (ROOT / 'app.js').read_text(encoding='utf-8')
         self.assertIn('function signalUiShellReady', js)
         boot = js[js.index('(async function boot()'):js.index('})();', js.index('(async function boot()'))]
         ready_at = boot.index('signalUiShellReady()')
         load_at = boot.index('loadSources({initial:true')
-        self.assertLess(ready_at, load_at, 'talep-ui-ready must precede full loadSources')
+        self.assertLess(ready_at, load_at, 'talep-ui-ready must precede loadSources')
+
+    def test_boot_is_progressive_not_literal_full_load(self):
+        js = (ROOT / 'app.js').read_text(encoding='utf-8')
+        boot = js[js.index('(async function boot()'):js.index('})();', js.index('(async function boot()'))]
+        self.assertIn('forceScan:false', boot)
+        self.assertNotIn('forceScan:true', boot)
+        self.assertIn('Progressive', boot)
+        self.assertIn('scheduleBackgroundSourceSync', js)
+        self.assertIn("qs.push('light=1')", js)
+        self.assertIn('BOOT_PRIORITY_SOURCES', js)
+        self.assertIn('LAZY_BOOK_SOURCES', js)
 
     def test_show_loading_issue_not_fatal_after_handoff(self):
         js = (ROOT / 'app.js').read_text(encoding='utf-8')
@@ -28,13 +39,18 @@ class BootHandoffTests(unittest.TestCase):
         self.assertGreaterEqual(int(m.group(1)), 15)
 
     def test_workspace_opens_on_navigation_without_boot_page_ready(self):
-        """Native splash must not wait for talep-ui-ready / full load."""
+        """Native splash must not wait for talep-ui-ready / source sync."""
         ps1 = (ROOT / 'START_GUI.ps1').read_text(encoding='utf-8')
-        # Gate must only require navigationReady (not bootPageReady).
         open_fn = ps1[ps1.index('function Open-TalepWorkspace'):ps1.index('$window.Add_Shown({$window.Width')]
         self.assertIn('!$script:navigationReady', open_fn)
         self.assertNotIn('!$script:bootPageReady', open_fn)
         self.assertIn('NavigationCompleted', ps1)
+
+    def test_api_files_supports_light(self):
+        py = (ROOT / 'server.py').read_text(encoding='utf-8')
+        files_block = py[py.index("if route == '/api/files'"):py.index("if route == '/api/file'")]
+        self.assertIn("light=str((q.get('light')", files_block)
+        self.assertIn('source_versions={} if light else', files_block)
 
 
 if __name__ == '__main__':

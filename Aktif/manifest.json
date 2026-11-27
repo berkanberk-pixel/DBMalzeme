@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "product": "Talep Kontrol",
-  "release_id": "talep-9f2290b41738dedd",
-  "package": "Paketler/talep-9f2290b41738dedd/TalepKontrol.zip",
-  "sha256": "9f2290b41738dedd245f0b9c19bb2acb4833c9aac92865e85d5470a529eb677c",
-  "size_bytes": 56277010,
-  "published_utc": "2026-11-27T08:07:18.168052+00:00",
-  "notes": "v1.0.4-splash-nav: native splash closes on WebView NavigationCompleted; full load stays in-page"
+  "release_id": "talep-b3d046578e9cc9f1",
+  "package": "Paketler/talep-b3d046578e9cc9f1/TalepKontrol.zip",
+  "sha256": "b3d046578e9cc9f18068060ac8d7e6c0ef23bd51cfb2c62e4f4a36cfb47f9b9b",
+  "size_bytes": 56277790,
+  "published_utc": "2026-11-27T08:27:57.104285+00:00",
+  "notes": "v1.0.4-progressive: [1] progressive boot — light /api/files + usable index first paint; lazy MB51/KESIFLER; bg forceScan; splash navigationReady"
 }

@@ -112,7 +112,7 @@ function setLoading(p,msg,detail=''){
   updateLoadingStages(value);updateLoadingEta(value);
 }
 // Native splash closes on WebView NavigationCompleted (START_GUI). talep-ui-ready
-// remains a secondary signal; keep the in-page loading overlay for full UNC load.
+// remains a secondary signal; progressive load uses in-page #loadingScreen stages.
 let uiShellReadyPosted=false;
 function signalUiShellReady(){
   if(uiShellReadyPosted)return;
@@ -240,10 +240,13 @@ function validateSource(src){
   return issues;
 }
 
-async function fetchSnapshot(forceScan=false){
+async function fetchSnapshot(forceScan=false, light=false){
   const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),forceScan?240000:45000);
   try{
-    const url='/api/files'+(forceScan?'?refresh=1':'');
+    const qs=[];
+    if(forceScan)qs.push('refresh=1');
+    if(light)qs.push('light=1');
+    const url='/api/files'+(qs.length?('?'+qs.join('&')):'');
     const r=await fetch(url,{cache:'no-store',signal:ctl.signal});
     if(!r.ok)throw new Error(`Yerel veri servisi yanıt vermedi (${r.status}).`);
     return await r.json();
@@ -321,53 +324,102 @@ window.addEventListener('talep-service-access',e=>{
   if(!e.detail?.connected){applySourceAccess({...state.meta.sourceAccess,current:false,reason:'Yerel servis bağlantısı kesildi.'});renderCommon()}
 });
 let sourceLoadInFlight=null;
+let backgroundSourceSyncScheduled=false;
 const sourceBookFingerprints=new Map();
+// [1] Progressive: first-screen priority; MB51/KESIFLER stay lazy API.
+const BOOT_PRIORITY_SOURCES=['TANIMLAR','ZMM048','ZMM098','MB52'];
+const LAZY_BOOK_SOURCES=new Set(['MB51','KESIFLER']);
 function loadSources(options={}){
   if(sourceLoadInFlight)return sourceLoadInFlight;
   sourceLoadInFlight=loadSourcesOnce(options).finally(()=>{sourceLoadInFlight=null});
   return sourceLoadInFlight;
 }
+function scheduleBackgroundSourceSync(){
+  if(backgroundSourceSyncScheduled)return;
+  backgroundSourceSyncScheduled=true;
+  setTimeout(()=>{
+    loadSources({silent:true,forceScan:true}).catch(e=>console.warn('Arka plan kaynak senkronu:',e));
+  },1800);
+}
+async function prepareSourceBook(src,info){
+  if(!info)return{src,file:{status:'missing',name:'',path:'',origin:''},book:null,diagnostics:[{level:'bad',text:`${FRIENDLY[src]} kaynağı bulunamadı. Bu kaynağa bağlı kontroller kullanılamaz.`}]};
+  const file={...info,status:'ok'};
+  if(LAZY_BOOK_SOURCES.has(src))return{src,file,book:{},diagnostics:[]};
+  const files=(info.files||[]).map(f=>[f.path,f.name,f.size,f.lastModified,f.role,f.headerRow]);
+  const fingerprint=JSON.stringify([CACHE_VERSION,src,info.path,info.size,info.lastModified,files]);
+  try{
+    if(sourceBookFingerprints.get(src)===fingerprint&&state.books[src])return{src,file,book:state.books[src],fingerprint,diagnostics:[]};
+    const cached=await dbGet(fingerprint).catch(()=>null);
+    const book=cached?.book||await parseCsvSourceBook(src,info);
+    if(!cached?.book&&Number(info.size||0)<=25*1024*1024)await dbSet(fingerprint,{book}).catch(()=>{});
+    return{src,file,book,fingerprint,diagnostics:[]};
+  }catch(e){return{src,file:{...file,status:'bad'},book:null,diagnostics:[{level:'bad',text:`${src}: ${e.message}`,source:src}]}}
+}
 async function loadSourcesOnce({initial=false,silent=false,forceScan=false}={}){
-  // [1] Literal full load — progress hangi kaynağın güncellendiğini gösterir.
+  // [1] Progressive (Halit): light /api/files + usable index first paint;
+  // heavy UNC refresh and remaining books continue in background.
   invalidateDecisionEvidence('Kaynaklar yenileniyor.');
   state.meta.sourceAccess={...state.meta.sourceAccess,current:false,reason:'Kaynaklar yenileniyor.'};
   state.diagnostics=[];kesifContextLoaded.clear();
   if(location.protocol==='file:')throw new Error('Bu paket index.html dosyasına çift tıklanarak çalıştırılmaz. BASLAT.vbs kullanın.');
-  if(!silent){document.body.classList.add('booting');setLoading(8,'Kaynak taraması…','Ağ/merkezi kaynak damgaları okunuyor.');}
-  const snap=await fetchSnapshot(forceScan);state.meta.roots=snap.roots||[];state.meta.externalRoot=snap.externalRoot||'';state.meta.bundledRoot=snap.bundledRoot||'';state.meta.dataEngine=snap.dataEngine||{};state.meta.sourceHealth=snap.sourceHealth||{};state.meta.pendingSourceUpdates=snap.pendingSourceUpdates||[];state.meta.freshnessWarnings=snap.freshnessWarnings||[];state.meta.releaseId=snap.releaseId||snap.sourceAccess?.diagnosis?.releaseId||'';state.meta.silentActiveAccept=snap.silentActiveAccept!==false;
+  const lightMeta=initial?!forceScan:!forceScan;
+  if(!silent){
+    document.body.classList.add('booting');
+    setLoading(8,lightMeta?'Kaynak damgaları (hafif)…':'Kaynak taraması…',
+      lightMeta?'Önbellek / usable indeks ile hızlı ilk ekran.':'Ağ/merkezi kaynak damgaları okunuyor.');
+  }
+  const snap=await fetchSnapshot(forceScan,lightMeta);
+  state.meta.roots=snap.roots||[];state.meta.externalRoot=snap.externalRoot||'';state.meta.bundledRoot=snap.bundledRoot||'';state.meta.dataEngine=snap.dataEngine||{};state.meta.sourceHealth=snap.sourceHealth||{};state.meta.pendingSourceUpdates=snap.pendingSourceUpdates||[];state.meta.freshnessWarnings=snap.freshnessWarnings||[];state.meta.releaseId=snap.releaseId||snap.sourceAccess?.diagnosis?.releaseId||'';state.meta.silentActiveAccept=snap.silentActiveAccept!==false;
   if(Array.isArray(snap.autoAccept)&&snap.autoAccept.length){
     const ok=snap.autoAccept.filter(x=>x.ok).map(x=>x.source);const bad=snap.autoAccept.filter(x=>!x.ok);
     if(ok.length)toast(`Otomatik ACTIVE: ${ok.join(', ')}`,'success',5200);
     bad.forEach(x=>toast(`${x.source} otomatik kabul hatası: ${x.error||'?'}`,'warn',6500));
   }
   applyRecordSecurity(snap.recordSecurity);
-  const entries=Object.entries(snap.sources||{});
-  const total=Math.max(1,entries.length);let done=0;const prepared=[];
-  for(const [src,info] of entries){
-    done+=1;const pct=12+Math.round((done/total)*70);
-    if(!silent)setLoading(pct,`${FRIENDLY[src]||src} yükleniyor…`,`${done}/${total} kaynak · full load`);
-    if(!info){prepared.push({src,file:{status:'missing',name:'',path:'',origin:''},book:null,diagnostics:[{level:'bad',text:`${FRIENDLY[src]} kaynağı bulunamadı. Bu kaynağa bağlı kontroller kullanılamaz.`}]});continue}
-    const file={...info,status:'ok'};
-    if(src==='MB51'||src==='KESIFLER'){prepared.push({src,file,book:{},diagnostics:[]});continue}
-    const files=(info.files||[]).map(f=>[f.path,f.name,f.size,f.lastModified,f.role,f.headerRow]);
-    const fingerprint=JSON.stringify([CACHE_VERSION,src,info.path,info.size,info.lastModified,files]);
-    try{
-      if(sourceBookFingerprints.get(src)===fingerprint&&state.books[src]){prepared.push({src,file,book:state.books[src],fingerprint,diagnostics:[]});continue}
-      const cached=await dbGet(fingerprint).catch(()=>null);
-      const book=cached?.book||await parseCsvSourceBook(src,info);
-      if(!cached?.book&&Number(info.size||0)<=25*1024*1024)await dbSet(fingerprint,{book}).catch(()=>{});
-      prepared.push({src,file,book,fingerprint,diagnostics:[]});
-    }catch(e){prepared.push({src,file:{...file,status:'bad'},book:null,diagnostics:[{level:'bad',text:`${src}: ${e.message}`,source:src}]})}
+  const usable=!!(snap.dataEngine&&(snap.dataEngine.usable||snap.dataEngine.ready));
+  if(!silent){
+    setLoading(18,usable?'Usable indeks hazır':'İndeks durumu kontrol…',
+      usable?`Motor ${snap.dataEngine.status||'READY'} · progressive açılış`:'İlk ekran kaynak kitaplarıyla devam ediyor.');
   }
-  if(!silent)setLoading(86,'Muaf listesi ve indeksler…','Karar modeli hazırlanıyor.');
+  const sourceMap=snap.sources||{};
+  const ordered=[
+    ...BOOT_PRIORITY_SOURCES,
+    ...SOURCES.filter(s=>!BOOT_PRIORITY_SOURCES.includes(s)),
+    ...Object.keys(sourceMap)
+  ];
+  const seen=new Set();const loadOrder=[];
+  for(const src of ordered){
+    if(seen.has(src))continue;seen.add(src);loadOrder.push(src);
+  }
+  const total=Math.max(1,loadOrder.length);let done=0;const prepared=[];
+  for(const src of loadOrder){
+    const info=sourceMap[src]||null;
+    done+=1;
+    const isLazy=LAZY_BOOK_SOURCES.has(src);
+    const pct=22+Math.round((done/total)*58);
+    if(!silent){
+      if(isLazy)setLoading(pct,`${FRIENDLY[src]||src} ertelendi`,`Lazy · ${done}/${total} · arka plan/API`);
+      else if(src==='ZMM048'||src==='TANIMLAR')setLoading(pct,`${FRIENDLY[src]||src} yükleniyor…`,`Aşama 2 · rezervasyon · ${done}/${total}`);
+      else if(src==='MB52'||src==='ZMM098')setLoading(pct,`${FRIENDLY[src]||src} yükleniyor…`,`Aşama 3 · stok/teminat · ${done}/${total}`);
+      else setLoading(pct,`${FRIENDLY[src]||src} yükleniyor…`,`${done}/${total} kaynak · progressive`);
+    }
+    // Initial progressive: skip parsing deferred books; keep file meta only.
+    if(initial&&isLazy){
+      if(!info){prepared.push({src,file:{status:'missing',name:'',path:'',origin:''},book:null,diagnostics:[{level:'warn',text:`${FRIENDLY[src]} kaynağı bulunamadı (lazy).`}]});}
+      else prepared.push({src,file:{...info,status:'ok'},book:{},diagnostics:[]});
+      continue;
+    }
+    prepared.push(await prepareSourceBook(src,info));
+  }
+  if(!silent)setLoading(84,'Muaf listesi ve indeksler…','Aşama 4 · karar modeli hazırlanıyor.');
   await loadExemptions();
   for(const {src,file,book,fingerprint,diagnostics} of prepared){
     state.files[src]=file;state.books[src]=book;
     if(fingerprint)sourceBookFingerprints.set(src,fingerprint);else sourceBookFingerprints.delete(src);
     state.diagnostics.push(...diagnostics);
-    if(file.status==='ok'&&src!=='MB51'&&src!=='KESIFLER'){for(const issue of validateSource(src))state.diagnostics.push({level:'bad',text:issue,source:src})}
+    if(file.status==='ok'&&!LAZY_BOOK_SOURCES.has(src)){for(const issue of validateSource(src))state.diagnostics.push({level:'bad',text:issue,source:src})}
   }
-  if(snap.configError)state.diagnostics.push({level:'warn',text:snap.configError});if(snap.engineRefreshError)state.diagnostics.push({level:'bad',text:'İndeks/Parquet yenileme hatası: '+snap.engineRefreshError});if(snap.dataEngine?.building)state.diagnostics.push({level:'warn',text:'Büyük veri indeksi arka planda güncelleniyor. Mevcut sağlıklı indeks kullanılıyor.'});else if(snap.dataEngine&&!snap.dataEngine.ready)state.diagnostics.push({level:'warn',text:'Parquet/index veri motoru güncel değil.'});
+  if(snap.configError)state.diagnostics.push({level:'warn',text:snap.configError});if(snap.engineRefreshError)state.diagnostics.push({level:'bad',text:'İndeks/Parquet yenileme hatası: '+snap.engineRefreshError});if(snap.dataEngine?.building)state.diagnostics.push({level:'warn',text:'Büyük veri indeksi arka planda güncelleniyor. Mevcut sağlıklı indeks kullanılıyor.'});else if(snap.dataEngine&&!snap.dataEngine.ready&&!snap.dataEngine.usable)state.diagnostics.push({level:'warn',text:'Parquet/index veri motoru henüz usable değil.'});
   for(const d of snap.scanDiagnostics||[])state.diagnostics.push({level:d.level||'warn',text:d.text||''});
   for(const w of state.meta.freshnessWarnings||[])state.diagnostics.push({level:'warn',text:w.message||`${w.source} güncelliği`,source:w.source});
   normalizeData();buildIndexes();validateData();
@@ -382,8 +434,12 @@ async function loadSourcesOnce({initial=false,silent=false,forceScan=false}={}){
   if($('#movementsView')?.classList.contains('active')&&state.books.MB51)renderMovementsView(false);
   if(state.ui.mode==='reservation'&&state.ui.reservationNo)renderReservation(state.ui.reservationNo);
   else if(state.ui.mode==='manual'&&state.ui.manualReady)renderManualWorkspace();
-  state.lastSnapshot=Object.fromEntries(entries.map(([s,i])=>[s,i?`${i.size}|${i.lastModified}|${(i.files||[]).map(f=>`${f.name}:${f.lastModified}:${f.role}`).join(',')}`:'missing']));
-  if(!silent){setLoading(96,'Karar destek modeli hazır…','Full load tamamlandı.');setTimeout(()=>{setLoading(100,'Veriler hazır','Karar destek ekranı açılıyor.');setTimeout(hideLoading,180)},120)}
+  state.lastSnapshot=Object.fromEntries(Object.entries(sourceMap).map(([s,i])=>[s,i?`${i.size}|${i.lastModified}|${(i.files||[]).map(f=>`${f.name}:${f.lastModified}:${f.role}`).join(',')}`:'missing']));
+  if(!silent){
+    setLoading(96,'İlk ekran hazır…',usable?'Usable indeks + progressive kaynaklar.':'Progressive yükleme tamamlandı.');
+    setTimeout(()=>{setLoading(100,'Veriler hazır','Karar destek ekranı açılıyor.');setTimeout(hideLoading,180)},120);
+  }
+  if(initial&&!forceScan)scheduleBackgroundSourceSync();
 }
 function workCode(v){const n=norm(v);if(n==='t'||n.includes('tesis'))return'T';if(n==='b'||n.includes('bakim'))return'B';if(n==='k'||n.includes('ket'))return'K';if(n==='l'||n.includes('led'))return'L';return String(v||'').trim().toUpperCase()}
 function isActive(v){const n=norm(v);return !v||['evet','x','1','aktif','true'].includes(n)}
@@ -3566,13 +3622,13 @@ window.addEventListener('pageshow',()=>{closeSignalSent=false;sendHeartbeat()});
   initNav();initSourceTableViews();initWorkOperationViews();initEvents();setControlMode(state.ui.mode);
   applySourceAccess({current:false,reason:'Kaynaklar arka planda doğrulanıyor.'});
   document.body.classList.add('booting');
-  setLoading(4,'Full load başlıyor…','Tüm kaynak verileri açılışta çekilecek.');
-  // Native splash handoff NOW — do not wait for UNC/full load (Halit 5dk timeout).
+  setLoading(4,'Progressive açılış…','Usable indeks + hafif kaynak meta; ağır yük arka planda.');
+  // Native splash handoff NOW — do not wait for source sync (navigationReady gate).
   await new Promise(resolve=>requestAnimationFrame(()=>setTimeout(resolve,0)));
   signalUiShellReady();
   try{
-    // [1] Literal full load continues under HTML progress after workspace opens.
-    await loadSources({initial:true,silent:false,forceScan:true});
+    // [1] Progressive: light /api/files, priority books, lazy MB51/KESIFLER; bg forceScan.
+    await loadSources({initial:true,silent:false,forceScan:false});
   }catch(e){
     console.error(e);
     const msg=normalizeServiceError(e);

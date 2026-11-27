@@ -501,9 +501,9 @@ try {
         }
     })
     function Open-TalepWorkspace {
-        # Halit: native splash must not wait for UNC/full-load JS handoff.
+        # Halit: native splash must not wait for JS source sync.
         # Health already OK before WebView starts; NavigationCompleted is enough
-        # to reveal the workspace. In-page #loadingScreen owns full-load progress.
+        # to reveal the workspace. In-page #loadingScreen owns progressive stages.
         if($script:uiSwapDone -or !$script:navigationReady){return}
         $script:uiSwapDone=$true
         $script:ready=$true
