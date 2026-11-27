@@ -186,11 +186,16 @@ def _active_only_light_snapshot():
     cfg['_light_snapshot'] = True
     return cfg, active, missing
 
-def _schedule_managed_snapshot_refresh():
+def _schedule_managed_snapshot_refresh(with_accepts=False, with_rebuild=False):
+    """UNC managed scan off the request thread.
+
+    with_accepts/with_rebuild: Halit force/monitor path — never block HTTP on UNC
+    or silent-accept rebuild (was causing “Yerel servis yanıt vermedi” timeouts).
+    """
     global _SNAPSHOT_REFRESH_STARTED
     with _SNAPSHOT_REFRESH_LOCK:
         if _SNAPSHOT_REFRESH_STARTED:
-            return
+            return False
         _SNAPSHOT_REFRESH_STARTED = True
 
     def worker():
@@ -202,6 +207,31 @@ def _schedule_managed_snapshot_refresh():
             with _SNAPSHOT_LOCK:
                 _SNAPSHOT_CACHE['value'] = value
                 _SNAPSHOT_CACHE['created'] = time.time()
+            cfg, sources, missing = value
+            if with_accepts and revision_runtime.pending_auto_accept_enabled(cfg):
+                pending = list(cfg.get('_pending_source_updates') or [])
+                if pending:
+                    try:
+                        auto_accept_pending_sources(cfg, pending)
+                    except Exception as acc_exc:
+                        try:
+                            print('Arka plan sessiz accept: '+str(acc_exc), flush=True)
+                        except Exception:
+                            pass
+                    # Refresh snapshot after accepts so ACTIVE is current.
+                    try:
+                        with _SNAPSHOT_MANAGED_LOCK:
+                            value2 = managed_source_snapshot()
+                        with _SNAPSHOT_LOCK:
+                            _SNAPSHOT_CACHE['value'] = value2
+                            _SNAPSHOT_CACHE['created'] = time.time()
+                        cfg, sources, missing = value2
+                    except Exception:
+                        pass
+            if with_rebuild and not missing:
+                engine = _engine_snapshot(sources)
+                if not engine.get('ready'):
+                    _start_engine_rebuild_background(sources)
         except Exception as exc:
             try:
                 print('Arka plan kaynak taraması: '+str(exc), flush=True)
@@ -210,8 +240,41 @@ def _schedule_managed_snapshot_refresh():
         finally:
             with _SNAPSHOT_REFRESH_LOCK:
                 _SNAPSHOT_REFRESH_STARTED = False
+            _schedule_silent_accept_drain(delay_sec=0.3)
 
     threading.Thread(target=worker, name='talep-snapshot-refresh', daemon=True).start()
+    return True
+
+
+def _async_force_snapshot_response():
+    """Immediate ACTIVE/light answer while UNC+accept+rebuild run in background."""
+    cfg, sources, missing = _active_only_light_snapshot()
+    cfg = dict(cfg)
+    cfg['_async_refresh'] = True
+    cfg['_light_snapshot'] = True
+    cfg.setdefault('_scan_diagnostics', []).append({
+        'level': 'warn',
+        'text': 'Ağ taraması / sessiz accept arka planda. HTTP yanıtı ACTIVE light meta ile döndü (askıda kalmaz).',
+    })
+    with _SNAPSHOT_LOCK:
+        # Prefer keeping a fresher non-light cache if present.
+        cached = _SNAPSHOT_CACHE.get('value')
+        if cached is not None:
+            cfg0 = cached[0] if isinstance(cached, tuple) else {}
+            if not (isinstance(cfg0, dict) and cfg0.get('_light_snapshot')):
+                cfg_c, sources_c, missing_c = cached
+                cfg_c = dict(cfg_c or {})
+                cfg_c['_async_refresh'] = True
+                cfg_c.setdefault('_scan_diagnostics', []).append({
+                    'level': 'info',
+                    'text': 'Önbellek damgası döndü; arka planda taze UNC taraması sürüyor.',
+                })
+                _schedule_managed_snapshot_refresh(with_accepts=True, with_rebuild=True)
+                return cfg_c, sources_c, missing_c
+        _SNAPSHOT_CACHE['value'] = (cfg, sources, missing)
+        _SNAPSHOT_CACHE['created'] = time.time()
+    _schedule_managed_snapshot_refresh(with_accepts=True, with_rebuild=True)
+    return cfg, sources, missing
 
 def source_snapshot_cached(force=False, light=False):
     """Return managed/ACTIVE snapshot.
@@ -1740,11 +1803,12 @@ def source_access_state(cfg, sources, engine):
     if status=='CORRUPT':
         current=False
         reason='Yerel veri bütünlüğü doğrulanamadı: '+str(engine.get('lastError') or 'İndeks yeniden hazırlanmalı.')
-    elif not usable and building and has_active_rows:
-        # İlk indeks: light OK / ACTIVE satırlar var → sahte INDEX_BUILDING salt-okunur yok.
+    elif not usable and has_active_rows and (building or status in ('MISSING','REBUILDING','UNKNOWN','')):
+        # İlk indeks / MISSING: light OK + ACTIVE satırlar → sahte salt-okunur yok.
         current=True
         reason=''
-        notes.append('Yerel indeks ilk kez hazırlanıyor; ACTIVE CSV/kitap ile devam (salt-okunur değil).')
+        if building or status in ('REBUILDING','MISSING',''):
+            notes.append('Yerel indeks henüz hazır değil ('+(status or 'MISSING')+'); ACTIVE CSV/kitap ile devam (salt-okunur değil).')
         if active_missing:
             notes.append('ACTIVE CSV meta eksik (senkron sürüyor): '+', '.join(active_missing))
     elif not usable:
@@ -5017,37 +5081,25 @@ class Handler(BaseHTTPRequestHandler):
                     })
                 # Damga değişti → gerçek tarama
                 force=True
-            # light=1: ACTIVE disk only (no UNC). Slow shares must not block boot.
-            cfg, sources, missing = source_snapshot_cached(force=force, light=light)
-            source_versions={} if light else DATA_ARCH_V2.observe_sources(sources or {})
+            # force/monitor-changed: NEVER block HTTP on UNC — async pipeline.
+            # light=1: ACTIVE disk only. Sync force was hanging WebView polls
+            # (“Yerel servis yanıt vermedi”) and inventing salt-okunur.
+            async_refresh=False
+            if force and not light:
+                cfg, sources, missing = _async_force_snapshot_response()
+                async_refresh=True
+                auto_accept_results=[{'source':'*','ok':True,'result':{'status':'QUEUED','queued':True,'message':'Sessiz accept arka plan taraması sonrası'}}]
+            else:
+                cfg, sources, missing = source_snapshot_cached(force=force, light=light)
+            source_versions={} if (light or async_refresh) else DATA_ARCH_V2.observe_sources(sources or {})
             engine=_engine_snapshot(sources)
             engine_refresh_error=''
-            # [5] Sessiz ACTIVE accept — rebuild kilidinden ÖNCE dene; kilitliyse kuyruk.
-            if force and not monitor and revision_runtime.pending_auto_accept_enabled(cfg):
-                pending=list(cfg.get('_pending_source_updates') or [])
-                if pending:
-                    auto_accept_results=auto_accept_pending_sources(cfg, pending)
-                    if any(x.get('ok') and (x.get('result') or {}).get('status')!='QUEUED' for x in auto_accept_results):
-                        cfg, sources, missing = source_snapshot_cached(force=True, light=False)
-                        engine=_engine_snapshot(sources)
-                        if not light:
-                            source_versions=DATA_ARCH_V2.observe_sources(sources or {})
-                    elif any((x.get('result') or {}).get('queued') or (x.get('result') or {}).get('status')=='QUEUED' for x in auto_accept_results):
-                        _schedule_silent_accept_drain()
-            if force and not monitor and not missing and not engine.get('ready'):
-                if _start_engine_rebuild_background(sources):
-                    engine={**engine,'building':True,'status':'REBUILDING'}
-                    # Rebuild başladıysa kalan/pending accept’ler drain ile uygulanır.
-                    if force and revision_runtime.pending_auto_accept_enabled(cfg):
-                        for item in list(cfg.get('_pending_source_updates') or []):
-                            if item.get('deferred'):
-                                continue
-                            src=str(item.get('source') or '').upper()
-                            if src:
-                                _enqueue_silent_accept(src,'INDEX_BUILDING')
-                        _schedule_silent_accept_drain()
-            if light:
+            if async_refresh and not engine.get('ready'):
+                engine={**engine,'building':True,'status':engine.get('status') or 'REBUILDING'}
+            if light and not async_refresh:
                 source_health={'sources':[],'light':True}
+            elif async_refresh:
+                source_health={'sources':[],'light':True,'asyncRefresh':True}
             else:
                 source_health=DATA_ARCH_V2.health(engine,engine.get('quality') or {}, sources or {})
             warn_h=float(cfg.get('freshness_warn_hours') or revision_runtime.SOURCE_FRESHNESS_WARN_HOURS)
@@ -5060,7 +5112,8 @@ class Handler(BaseHTTPRequestHandler):
                 'ok': True,
                 'monitor': monitor,
                 'stampOnly': False,
-                'light': bool(light or cfg.get('_light_snapshot')),
+                'asyncRefresh': async_refresh,
+                'light': bool(light or cfg.get('_light_snapshot') or async_refresh),
                 'sources': sources,
                 'missing': missing,
                 'roots': cfg.get('roots', []),

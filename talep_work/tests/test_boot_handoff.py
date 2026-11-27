@@ -50,8 +50,9 @@ class BootHandoffTests(unittest.TestCase):
         py = (ROOT / 'server.py').read_text(encoding='utf-8')
         files_block = py[py.index("if route == '/api/files'"):py.index("if route == '/api/file'")]
         self.assertIn("light=str((q.get('light')", files_block)
-        self.assertIn('source_versions={} if light else', files_block)
+        self.assertIn('source_versions={} if (light or async_refresh) else', files_block)
         self.assertIn('_active_only_light_snapshot', py)
+        self.assertIn('_async_force_snapshot_response', py)
         self.assertIn('source_snapshot_cached(force=force, light=light)', files_block)
 
     def test_boot_snapshot_has_timeout_and_fallback(self):

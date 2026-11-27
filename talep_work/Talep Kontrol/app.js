@@ -490,8 +490,8 @@ function initDiagConsole(){
   });
 }
 function loadSources(options={}){
-  // Force UNC scan runs in its own flight so a long refresh does not steal
-  // interactive light loads forever — but we still serialize to protect state.
+  // Force UNC is async on server now; keep a separate client flight for diagnostics.
+  // Light loads must NOT wait on forceScan (was freezing UI / false missing).
   if(options.forceScan){
     if(sourceForceSyncInFlight)return sourceForceSyncInFlight;
     const taskId='force-'+(options.background?'bg':'fg');
@@ -505,9 +505,8 @@ function loadSources(options={}){
   }
   if(sourceLoadInFlight)return sourceLoadInFlight;
   const taskId='load-'+(options.initial?'boot':'light');
-  diagTaskStart(taskId,options.initial?'Açılış kaynak yükleme':'Kaynak yükleme (light)',options.forceScan?'force':'light');
-  const afterForce=sourceForceSyncInFlight?sourceForceSyncInFlight.catch(()=>null):Promise.resolve();
-  sourceLoadInFlight=afterForce.then(()=>loadSourcesOnce(options))
+  diagTaskStart(taskId,options.initial?'Açılış kaynak yükleme':'Kaynak yükleme (light)','light');
+  sourceLoadInFlight=loadSourcesOnce(options)
     .then(()=>{diagTaskEnd(taskId,'ok','tamam');return null})
     .catch(e=>{diagTaskEnd(taskId,'err',e.message||e);throw e})
     .finally(()=>{sourceLoadInFlight=null});
@@ -539,9 +538,9 @@ async function prepareSourceBook(src,info){
 async function loadSourcesOnce({initial=false,silent=false,forceScan=false,background=false}={}){
   // [1] Progressive (Halit): light /api/files + usable index first paint;
   // heavy UNC refresh and remaining books continue in background.
-  // background=true: do not flip salt-okunur / kilitle UI while UNC scan runs.
+  // background/silent: do not flip salt-okunur while UNC/async refresh runs.
   invalidateDecisionEvidence(background?'Arka plan kaynak senkronu.':'Kaynaklar yenileniyor.');
-  if(!background){
+  if(!background&&!silent){
     state.meta.sourceAccess={...state.meta.sourceAccess,current:false,reason:'Kaynaklar yenileniyor.'};
   }
   state.diagnostics=[];kesifContextLoaded.clear();
@@ -566,7 +565,13 @@ async function loadSourcesOnce({initial=false,silent=false,forceScan=false,backg
       if(!silent)setLoading(14,'Önbellek yok / zaman aşımı','İlk ekran açılıyor; senkron arka planda.');
     }else throw e;
   }
-  logSourceOp('META',snap.degraded?'degraded':'ok',snap.light?'ACTIVE-only':'full meta',Object.keys(snap.sources||{}).length);
+  const syncPending=!!(snap.asyncRefresh||snap.degraded||(forceScan&&snap.light));
+  logSourceOp('META',snap.degraded?'degraded':(snap.asyncRefresh?'async':'ok'),snap.light?'ACTIVE-only':'full meta',Object.keys(snap.sources||{}).length);
+  if(snap.asyncRefresh){
+    logSourceOp('META','async-refresh','UNC/accept arka planda — HTTP askıda değil',null);
+    // ACTIVE may still be filling; reload light once after background pipeline settles.
+    setTimeout(()=>{loadSources({silent:true,forceScan:false}).catch(e=>console.warn('Async refresh follow-up:',e))},6500);
+  }
   state.meta.roots=snap.roots||[];state.meta.externalRoot=snap.externalRoot||'';state.meta.bundledRoot=snap.bundledRoot||'';state.meta.dataEngine=snap.dataEngine||{};state.meta.sourceHealth=snap.sourceHealth||{};state.meta.pendingSourceUpdates=snap.pendingSourceUpdates||[];state.meta.freshnessWarnings=snap.freshnessWarnings||[];state.meta.releaseId=snap.releaseId||snap.sourceAccess?.diagnosis?.releaseId||'';state.meta.silentActiveAccept=snap.silentActiveAccept!==false;
   if(Array.isArray(snap.autoAccept)&&snap.autoAccept.length){
     const queued=snap.autoAccept.filter(x=>x.ok&&(x.result?.queued||x.result?.status==='QUEUED'));
@@ -574,9 +579,9 @@ async function loadSourcesOnce({initial=false,silent=false,forceScan=false,backg
     const bad=snap.autoAccept.filter(x=>!x.ok);
     if(ok.length){toast(`Otomatik ACTIVE: ${ok.join(', ')}`,'success',5200);ok.forEach(s=>logSourceOp(s,'accept','sessiz ACTIVE',null))}
     if(queued.length){
-      const names=queued.map(x=>x.source).join(', ');
-      toast(`Sessiz accept kuyrukta (indeks bitince): ${names}`,'info',5200);
-      queued.forEach(x=>logSourceOp(x.source,'accept-queued',x.result?.message||'INDEX_BUILDING',null));
+      const names=queued.map(x=>x.source).filter(s=>s&&s!=='*').join(', ')||'arka plan';
+      toast(`Sessiz accept arka planda: ${names}`,'info',4200);
+      queued.forEach(x=>logSourceOp(x.source||'ACCEPT','accept-queued',x.result?.message||'async-refresh',null));
     }
     bad.forEach(x=>{toast(`${x.source} otomatik kabul hatası: ${x.error||'?'}`,'warn',6500);logSourceOp(x.source,'accept-error',x.error||'?',null)});
   }
@@ -611,18 +616,24 @@ async function loadSourcesOnce({initial=false,silent=false,forceScan=false,backg
     // Initial progressive: skip parsing deferred books; keep file meta only.
     if(initial&&isLazy){
       if(!info){
-        const pending=!!snap.degraded;
+        const pending=syncPending;
         prepared.push({src,file:{status:pending?'pending':'missing',name:'',path:'',origin:''},book:null,diagnostics:[{level:'warn',text:pending?`${FRIENDLY[src]} senkron bekliyor (lazy).`:`${FRIENDLY[src]} kaynağı bulunamadı (lazy).`}]});
       }
       else prepared.push({src,file:{...info,status:'ok'},book:{},diagnostics:[]});
       continue;
     }
-    if(!info&&snap.degraded){
-      prepared.push({src,file:{status:'pending',name:'',path:'',origin:''},book:null,diagnostics:[{level:'warn',text:`${FRIENDLY[src]} açılışta beklemede — arka plan senkronu.`}]} );
-      logSourceOp(src,'pending','BOOT_TIMEOUT / senkron',null);
+    if(!info&&syncPending){
+      prepared.push({src,file:{status:'pending',name:'',path:'',origin:''},book:null,diagnostics:[{level:'warn',text:`${FRIENDLY[src]} arka plan senkronu bekleniyor.`}]});
+      logSourceOp(src,'pending',snap.asyncRefresh?'async-refresh':'BOOT_TIMEOUT / senkron',0);
       continue;
     }
     const preparedOne=await prepareSourceBook(src,info);
+    // Book parse 0 satır / bad during async UNC: treat as pending, not hard missing.
+    if(syncPending&&(!preparedOne.book||preparedOne.file?.status==='bad'||preparedOne.file?.status==='missing')){
+      prepared.push({src,file:{status:'pending',name:info?.name||'',path:info?.path||'',origin:info?.origin||''},book:null,diagnostics:[{level:'warn',text:`${FRIENDLY[src]} senkron sürüyor (0 satır / geçici).`}]});
+      logSourceOp(src,'pending','async / 0 satır',0);
+      continue;
+    }
     prepared.push(preparedOne);
     const rowCount=preparedOne.book?Object.values(preparedOne.book).reduce((n,rows)=>n+(Array.isArray(rows)?rows.length:0),0):0;
     logSourceOp(src,preparedOne.file?.status||(isLazy?'lazy':'missing'),isLazy?'API/lazy':(FRIENDLY[src]||src),isLazy?null:rowCount);
@@ -640,13 +651,13 @@ async function loadSourcesOnce({initial=false,silent=false,forceScan=false,backg
   for(const w of state.meta.freshnessWarnings||[])state.diagnostics.push({level:'warn',text:w.message||`${w.source} güncelliği`,source:w.source});
   normalizeData();buildIndexes();validateData();
   state.meta.loadedSnapshotId=Object.values(state.files).every(f=>f.status==='ok')?(snap.sourceAccess?.snapshotId||''):'';
-  // Do not invent salt-okunur from BOOT_TIMEOUT/pending or usable-index partial books.
+  // Do not invent salt-okunur from BOOT_TIMEOUT/async refresh/pending or usable-index partial books.
   const hardFail=Object.entries(state.files).filter(([,f])=>f.status==='bad'||f.status==='missing');
   const engineUsable=!!(snap.dataEngine&&(snap.dataEngine.usable||snap.dataEngine.ready));
-  if(hardFail.length&&!snap.degraded&&!engineUsable){
+  if(hardFail.length&&!syncPending&&!engineUsable){
     applySourceAccess({...snap.sourceAccess,current:false,reason:'Yüklenemeyen kaynaklar: '+hardFail.map(([src])=>src).join(', ')+'. Ayrıntılar kaynak tanılamasında.'});
   }else{
-    applySourceAccess(snap.sourceAccess);
+    applySourceAccess(snap.sourceAccess||state.meta.sourceAccess);
   }
   renderCommon();
   scheduleSourceUpdateAlerts(state.meta.pendingSourceUpdates||[]);
@@ -1083,8 +1094,9 @@ function scheduleSourceUpdateAlerts(items=[]){
     toast(`${sourceUpdateLabel(item.source)} için yeni veri hazır.`,'info',6500);
   }
 }
-async function pollSourceUpdateStatus(){if(document.hidden||sourceLoadInFlight)return;const epoch=state.meta.evidenceEpoch||0;try{
-  const snap=await fetchApiJson('/api/files?refresh=1&monitor=1&ts='+Date.now(),{},20000);
+async function pollSourceUpdateStatus(){if(document.hidden||sourceLoadInFlight||sourceForceSyncInFlight)return;const epoch=state.meta.evidenceEpoch||0;try{
+  // monitor only — never refresh=1 (was sync UNC → 20s abort → false salt-okunur).
+  const snap=await fetchApiJson('/api/files?monitor=1&ts='+Date.now(),{},12000);
   if(epoch!==(state.meta.evidenceEpoch||0))return;
   applyRecordSecurity(snap.recordSecurity);
   const changed=!!snap.sourceAccess?.current && state.meta.loadedSnapshotId!==snap.sourceAccess.snapshotId;
@@ -1095,7 +1107,12 @@ async function pollSourceUpdateStatus(){if(document.hidden||sourceLoadInFlight)r
   applySourceAccess(snap.sourceAccess);
   state.meta.dataEngine=snap.dataEngine||{};state.meta.sourceHealth=snap.sourceHealth||{};
   state.meta.pendingSourceUpdates=snap.pendingSourceUpdates||[];renderCommon();scheduleSourceUpdateAlerts(state.meta.pendingSourceUpdates)
-}catch(e){if(epoch!==(state.meta.evidenceEpoch||0))return;applySourceAccess({current:false,reason:'Kaynak güncelliği doğrulanamadı: '+e.message});renderCommon()}}
+}catch(e){
+  // Poll/health timeout must NEVER invent salt-okunur (Halit: “Yerel servis yanıt vermedi”).
+  if(epoch!==(state.meta.evidenceEpoch||0))return;
+  console.warn('Monitor poll:',e);
+  try{logSourceOp('MONITOR','timeout',e.message||e)}catch(_){}
+}}
 
 async function sourceUpdateChoice(choice){const item=sourceUpdateCurrent;if(!item)return;const source=item.source;if(choice==='keep'){$('#sourceUpdateKeep').disabled=true;try{await fetchApiJson('/api/source-update-choice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source,choice:'keep'})},20000);toast(`${sourceUpdateLabel(source)} için eski veriyle devam ediliyor.`,'info');closeSourceUpdateModal();await loadSources({silent:true,forceScan:true})}catch(e){toast('Kaynak tercihi kaydedilemedi: '+e.message,'error')}finally{if($('#sourceUpdateKeep'))$('#sourceUpdateKeep').disabled=false}return}
   if(sourceUpdateInFlight)return toast('Bir kaynak güncellemesi arka planda sürüyor.','info');

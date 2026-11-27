@@ -91,16 +91,28 @@ class SourceAccessStateTests(unittest.TestCase):
         self.assertEqual(access['missing'], ['KESIFLER'])
         self.assertIn('ACTIVE CSV meta eksik', access.get('networkNote') or '')
 
-    def test_missing_active_without_usable_index_is_readonly(self):
+    def test_partial_active_with_missing_engine_stays_writable(self):
+        """ACTIVE satırlar varken engine MISSING → sahte salt-okunur yok (Halit dump)."""
         import server as srv
 
         cfg = {'_candidate_sources': {}}
         sources = {name: {'files': [{'path': 'x'}]} for name in srv.SOURCE_NAMES if name != 'KESIFLER'}
         engine = {'ready': False, 'building': False, 'usable': False, 'status': 'MISSING'}
         access = srv.source_access_state(cfg, sources, engine)
+        self.assertTrue(access['current'], access)
+        self.assertFalse(access['readOnly'])
+        self.assertEqual(access['missing'], ['KESIFLER'])
+        self.assertIn('MISSING', access.get('networkNote') or '')
+
+    def test_no_active_and_missing_engine_is_readonly(self):
+        import server as srv
+
+        cfg = {'_candidate_sources': {}}
+        sources = {name: None for name in srv.SOURCE_NAMES}
+        engine = {'ready': False, 'building': False, 'usable': False, 'status': 'MISSING'}
+        access = srv.source_access_state(cfg, sources, engine)
         self.assertFalse(access['current'])
         self.assertTrue(access['readOnly'])
-        self.assertEqual(access['missing'], ['KESIFLER'])
         self.assertIn('Merkezi/yerel kaynak eksik', access['reason'])
 
     def test_stale_usable_index_keeps_app_writable(self):
@@ -126,7 +138,7 @@ class SourceAccessStateTests(unittest.TestCase):
         self.assertTrue(access['current'], access)
         self.assertFalse(access['readOnly'])
         self.assertEqual(access['reason'], '')
-        self.assertIn('ilk kez hazırlanıyor', access.get('networkNote') or '')
+        self.assertIn('hazır değil', access.get('networkNote') or '')
 
     def test_building_without_sources_still_readonly(self):
         import server as srv
