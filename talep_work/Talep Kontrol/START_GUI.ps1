@@ -501,7 +501,10 @@ try {
         }
     })
     function Open-TalepWorkspace {
-        if($script:uiSwapDone -or !$script:navigationReady -or !$script:bootPageReady){return}
+        # Halit: native splash must not wait for UNC/full-load JS handoff.
+        # Health already OK before WebView starts; NavigationCompleted is enough
+        # to reveal the workspace. In-page #loadingScreen owns full-load progress.
+        if($script:uiSwapDone -or !$script:navigationReady){return}
         $script:uiSwapDone=$true
         $script:ready=$true
         $timer.Stop()
@@ -511,6 +514,7 @@ try {
             $window.BackColor=[Drawing.Color]::FromArgb(16,45,65)
             $script:workspaceMode=$true
             $splash.Visible=$false
+            try { Add-Content -LiteralPath $Log -Value ((Get-Date -Format s)+' | GUI | Workspace opened (navigationReady; bootPageReady='+$script:bootPageReady+')') -Encoding UTF8 } catch {}
             $screen=[System.Windows.Forms.Screen]::FromControl($window).WorkingArea
             $desiredW=[int][Math]::Min(1600,[Math]::Max(1,$screen.Width*0.92))
             $desiredH=[int][Math]::Min(960,[Math]::Max(1,$screen.Height*0.90))
@@ -570,7 +574,7 @@ try {
             $dots[$i].ForeColor=[Drawing.Color]::FromArgb($r,$g,$b)
         }
         if($script:tickCount%6 -ne 0){return}
-        # UI shell signals talep-ui-ready before UNC full load; keep a longer
+        # Splash opens on NavigationCompleted (not JS ready). Keep a longer
         # ceiling for slow Python/WebView2/network bootstrap only.
         if(([DateTime]::UtcNow-$script:started).TotalMinutes -gt 15){Show-Error 'Başlatma zaman aşımına uğradı. Ağ, Python ve WebView2 bileşenlerini kontrol edin.';return}
         if($script:svcProc -and $script:svcProc.HasExited -and $script:svcProc.ExitCode -ne 0){
@@ -623,7 +627,7 @@ try {
             $script:web.CreationProperties=$creation
             $script:web.Dock=[System.Windows.Forms.DockStyle]::None
             $hostPanel.Controls.Add($script:web)
-            # Offscreen until the page has finished INITIAL data initialization.
+            # Keep splash on top only until first successful navigation, then swap.
             $script:web.BringToFront();$splash.BringToFront()
             Sync-DesktopContentBounds
             $script:web.Add_CoreWebView2InitializationCompleted({param($sender,$e)
@@ -634,7 +638,8 @@ try {
                     return
                 }
                 try {$sender.CoreWebView2.Settings.AreDefaultContextMenusEnabled=$false} catch{}
-                # The localhost page reports when navigation is usable. Source loading continues separately.
+                # Optional page messages: ready is no longer a splash gate; boot-error
+                # only kills splash if workspace has not opened yet.
                 try {
                     $sender.CoreWebView2.Add_WebMessageReceived({param($core,$msg)
                         try {
@@ -645,7 +650,11 @@ try {
                                 $script:bootPageReady=$true
                                 Open-TalepWorkspace
                             } elseif($data.type -eq 'talep-ui-boot-error') {
-                                Show-Error ('Veri hazırlama tamamlanamadı: '+[string]$data.message)
+                                if(-not $script:uiSwapDone){
+                                    Show-Error ('Veri hazırlama tamamlanamadı: '+[string]$data.message)
+                                } else {
+                                    try { Add-Content -LiteralPath $Log -Value ((Get-Date -Format s)+' | GUI | In-page boot error after workspace open: '+[string]$data.message) -Encoding UTF8 } catch {}
+                                }
                             }
                         }catch{
                             try { Add-Content -LiteralPath $Log -Value ((Get-Date -Format s)+' | GUI | UI message: '+$_.Exception.Message) -Encoding UTF8 } catch {}
@@ -656,6 +665,7 @@ try {
             $script:web.Add_NavigationCompleted({param($sender,$e)
                 if($e.IsSuccess){
                     $script:navigationReady=$true
+                    # Reveal workspace immediately — do not wait for JS full load.
                     Open-TalepWorkspace
                 } else {
                     Show-Error ('Uygulama ekranı yüklenemedi: '+$e.WebErrorStatus)
@@ -663,6 +673,7 @@ try {
             })
             $script:web.Source=[Uri]('http://127.0.0.1:'+$script:serverPort+'/')
             $detail.Text='Talep Kontrol çalışma alanı açılıyor...'
+            try { Add-Content -LiteralPath $Log -Value ((Get-Date -Format s)+' | GUI | WebView navigating http://127.0.0.1:'+$script:serverPort+'/') -Encoding UTF8 } catch {}
         }catch{Show-Error ('Uygulama penceresi açılamadı: '+$_.Exception.Message)}
     })
     $window.Add_Shown({

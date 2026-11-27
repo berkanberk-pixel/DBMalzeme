@@ -9,7 +9,7 @@
   "auto_final_record": true,
   "freshness_warn_hours": 24,
   "app_version": "1.0.4",
-  "build": "20261127-v1.0.4-boot-handoff",
+  "build": "20261127-v1.0.4-splash-nav",
   "release_id": "talep-613fa5a122b51bdb",
   "layout_variant": "B",
   "layout_variant_name": "Normal boyutlu, yeniden boyutlandırılabilir pencere",

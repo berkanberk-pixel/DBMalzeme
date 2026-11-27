@@ -111,9 +111,8 @@ function setLoading(p,msg,detail=''){
   if(card){card.classList.remove('has-error');card.setAttribute('aria-busy',value>=100?'false':'true')}
   updateLoadingStages(value);updateLoadingEta(value);
 }
-// Launcher (START_GUI) waits for talep-ui-ready with a hard timeout. Full UNC
-// load can exceed that — hand off the native splash as soon as the HTML shell
-// paints; keep the in-page loading overlay for literal full load progress.
+// Native splash closes on WebView NavigationCompleted (START_GUI). talep-ui-ready
+// remains a secondary signal; keep the in-page loading overlay for full UNC load.
 let uiShellReadyPosted=false;
 function signalUiShellReady(){
   if(uiShellReadyPosted)return;

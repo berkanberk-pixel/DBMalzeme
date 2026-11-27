@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "product": "Talep Kontrol",
-  "release_id": "talep-613fa5a122b51bdb",
-  "package": "Paketler/talep-613fa5a122b51bdb/TalepKontrol.zip",
-  "sha256": "613fa5a122b51bdbfce5985c1473fb440b0e24375f9a8716497b6b692a0ec01c",
-  "size_bytes": 56276812,
-  "published_utc": "2026-11-27T07:43:24.745954+00:00",
-  "notes": "v1.0.4-boot-handoff: talep-ui-ready before UNC full load; launcher timeout 15m"
+  "release_id": "talep-9f2290b41738dedd",
+  "package": "Paketler/talep-9f2290b41738dedd/TalepKontrol.zip",
+  "sha256": "9f2290b41738dedd245f0b9c19bb2acb4833c9aac92865e85d5470a529eb677c",
+  "size_bytes": 56277010,
+  "published_utc": "2026-11-27T08:07:18.168052+00:00",
+  "notes": "v1.0.4-splash-nav: native splash closes on WebView NavigationCompleted; full load stays in-page"
 }

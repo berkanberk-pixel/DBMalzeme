@@ -27,6 +27,15 @@ class BootHandoffTests(unittest.TestCase):
         self.assertIsNotNone(m)
         self.assertGreaterEqual(int(m.group(1)), 15)
 
+    def test_workspace_opens_on_navigation_without_boot_page_ready(self):
+        """Native splash must not wait for talep-ui-ready / full load."""
+        ps1 = (ROOT / 'START_GUI.ps1').read_text(encoding='utf-8')
+        # Gate must only require navigationReady (not bootPageReady).
+        open_fn = ps1[ps1.index('function Open-TalepWorkspace'):ps1.index('$window.Add_Shown({$window.Width')]
+        self.assertIn('!$script:navigationReady', open_fn)
+        self.assertNotIn('!$script:bootPageReady', open_fn)
+        self.assertIn('NavigationCompleted', ps1)
+
 
 if __name__ == '__main__':
     unittest.main()
