@@ -115,11 +115,24 @@ class SourceAccessStateTests(unittest.TestCase):
         self.assertFalse(access['readOnly'])
         self.assertIn('önceki kaynaklarla', access.get('networkNote', ''))
 
-    def test_building_without_usable_index_is_readonly(self):
+    def test_first_index_building_with_active_rows_not_readonly(self):
+        """Halit: light OK + INDEX_BUILDING → sahte salt-okunur yok."""
         import server as srv
 
         cfg = {'_candidate_sources': {}}
         sources = {name: {'files': [{'path': 'x'}]} for name in srv.SOURCE_NAMES}
+        engine = {'ready': False, 'building': True, 'usable': False, 'status': 'REBUILDING'}
+        access = srv.source_access_state(cfg, sources, engine)
+        self.assertTrue(access['current'], access)
+        self.assertFalse(access['readOnly'])
+        self.assertEqual(access['reason'], '')
+        self.assertIn('ilk kez hazırlanıyor', access.get('networkNote') or '')
+
+    def test_building_without_sources_still_readonly(self):
+        import server as srv
+
+        cfg = {'_candidate_sources': {}}
+        sources = {name: None for name in srv.SOURCE_NAMES}
         engine = {'ready': False, 'building': True, 'usable': False, 'status': 'REBUILDING'}
         access = srv.source_access_state(cfg, sources, engine)
         self.assertFalse(access['current'])

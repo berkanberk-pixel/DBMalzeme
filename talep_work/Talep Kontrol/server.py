@@ -1715,6 +1715,8 @@ def source_access_state(cfg, sources, engine):
     Kullanılabilir yerel indeks varken (READY veya STALE) uygulama yazılabilir kalır.
     Arka plan yeniden indeksleme veya aday güncelleme salt okunur kilidi koymaz.
     Light/ACTIVE CSV meta eksikliği usable indeksi salt-okunur yapmaz (merkez seed).
+    İlk indeks (building, henüz usable değil) ama ACTIVE satırlar varken sahte
+    salt-okunur uygulanmaz — CSV/kitap ile devam; indeks arka planda biter.
     """
     candidates=cfg.get('_candidate_sources') or {}
     active_missing=[name for name in SOURCE_NAMES if not (sources or {}).get(name)]
@@ -1733,10 +1735,18 @@ def source_access_state(cfg, sources, engine):
     ready=bool(engine.get('ready'))
     building=bool(engine.get('building'))
     status=str(engine.get('status') or '')
+    has_active_rows=any(bool((sources or {}).get(name)) for name in SOURCE_NAMES)
     notes=[]
     if status=='CORRUPT':
         current=False
         reason='Yerel veri bütünlüğü doğrulanamadı: '+str(engine.get('lastError') or 'İndeks yeniden hazırlanmalı.')
+    elif not usable and building and has_active_rows:
+        # İlk indeks: light OK / ACTIVE satırlar var → sahte INDEX_BUILDING salt-okunur yok.
+        current=True
+        reason=''
+        notes.append('Yerel indeks ilk kez hazırlanıyor; ACTIVE CSV/kitap ile devam (salt-okunur değil).')
+        if active_missing:
+            notes.append('ACTIVE CSV meta eksik (senkron sürüyor): '+', '.join(active_missing))
     elif not usable:
         current=False
         if building:
@@ -1791,13 +1801,88 @@ def _source_state_proposed(logical):
     return active,state,candidate,source,role
 
 
+_SILENT_ACCEPT_QUEUE=[]
+_SILENT_ACCEPT_QUEUE_LOCK=threading.Lock()
+_SILENT_ACCEPT_DRAIN_LOCK=threading.Lock()
+_SILENT_ACCEPT_DRAIN_STARTED=False
+
+def _enqueue_silent_accept(logical, reason='rebuild'):
+    logical=str(logical or '').upper()
+    if not logical:
+        return {'source':logical,'status':'QUEUED','message':'Kaynak adı boş.','queued':True}
+    with _SILENT_ACCEPT_QUEUE_LOCK:
+        if logical not in _SILENT_ACCEPT_QUEUE:
+            _SILENT_ACCEPT_QUEUE.append(logical)
+    return {
+        'source':logical,'status':'QUEUED','queued':True,
+        'message':f'Sessiz ACTIVE accept kuyruğa alındı (bekleyen: {reason}). İndeks/kaynak işlemi bitince uygulanacak.',
+    }
+
+def _schedule_silent_accept_drain(delay_sec=0.4):
+    """Rebuild/lock bitince kuyruktaki sessiz accept’leri sırayla uygula."""
+    global _SILENT_ACCEPT_DRAIN_STARTED
+    with _SILENT_ACCEPT_DRAIN_LOCK:
+        if _SILENT_ACCEPT_DRAIN_STARTED:
+            return
+        _SILENT_ACCEPT_DRAIN_STARTED=True
+
+    def worker():
+        global _SILENT_ACCEPT_DRAIN_STARTED
+        try:
+            if delay_sec:
+                time.sleep(delay_sec)
+            while True:
+                if _engine_build_state().get('building'):
+                    time.sleep(0.6)
+                    continue
+                with _SILENT_ACCEPT_QUEUE_LOCK:
+                    if not _SILENT_ACCEPT_QUEUE:
+                        return
+                    logical=_SILENT_ACCEPT_QUEUE.pop(0)
+                try:
+                    source_update_choice(logical,'accept','SYSTEM_AUTO_ACCEPT')
+                except Exception as exc:
+                    msg=str(exc)
+                    if 'Başka bir kaynak işlemi' in msg or 'sürüyor' in msg:
+                        _enqueue_silent_accept(logical,'retry-busy')
+                        time.sleep(0.8)
+                        continue
+                    try:
+                        print('Sessiz accept kuyruk hatası '+logical+': '+msg, flush=True)
+                    except Exception:
+                        pass
+        finally:
+            with _SILENT_ACCEPT_DRAIN_LOCK:
+                _SILENT_ACCEPT_DRAIN_STARTED=False
+            with _SILENT_ACCEPT_QUEUE_LOCK:
+                leftover=bool(_SILENT_ACCEPT_QUEUE)
+            if leftover and not _engine_build_state().get('building'):
+                _schedule_silent_accept_drain(delay_sec=0.5)
+
+    threading.Thread(target=worker,name='talep-silent-accept-drain',daemon=True).start()
+
+
 def source_update_choice(logical,choice,actor='DATA_MANAGER'):
+    logical=str(logical or '').upper();choice=str(choice or '').lower()
+    actor=str(actor or 'DATA_MANAGER')
+    auto=actor.startswith('SYSTEM_AUTO')
+    # Rebuild sürerken sessiz accept’i hata olarak düşürme — kuyruğa al.
+    if auto and choice=='accept' and _engine_build_state().get('building'):
+        queued=_enqueue_silent_accept(logical,'INDEX_BUILDING')
+        _schedule_silent_accept_drain()
+        return queued
     if not _ENGINE_BUILD_LOCK.acquire(blocking=False):
+        if auto and choice=='accept':
+            queued=_enqueue_silent_accept(logical,'engine-lock')
+            _schedule_silent_accept_drain()
+            return queued
         raise ValueError('Başka bir kaynak işlemi sürüyor. Tamamlanınca yeniden deneyin.')
     try:
         return _source_update_choice_locked(logical,choice,actor)
     finally:
         _ENGINE_BUILD_LOCK.release()
+        if auto:
+            _schedule_silent_accept_drain(delay_sec=0.2)
 
 
 def _source_update_choice_locked(logical,choice,actor):
@@ -3961,6 +4046,7 @@ def _start_engine_rebuild_background(sources):
     # Veri Yenile butonu buyuk CSV/Parquet rebuild'ini beklemez. Tek bir
     # arka plan build'i calisir; mevcut saglikli indeks build tamamlanana kadar
     # sorgulara hizmet vermeye devam eder.
+    # Sessiz accept’ler rebuild bitene kadar kuyrukta bekler (Halit INDEX_BUILDING).
     with _ENGINE_BUILD_STATE_LOCK:
         if _ENGINE_BUILD_STATE.get('building'):
             return False
@@ -3975,6 +4061,7 @@ def _start_engine_rebuild_background(sources):
         finally:
             with _ENGINE_BUILD_STATE_LOCK:
                 _ENGINE_BUILD_STATE.update({'building':False,'finishedAt':time.strftime('%Y-%m-%dT%H:%M:%S'),'error':err})
+            _schedule_silent_accept_drain(delay_sec=0.3)
     threading.Thread(target=worker,name='talep-engine-rebuild',daemon=True).start()
     return True
 
@@ -4934,20 +5021,31 @@ class Handler(BaseHTTPRequestHandler):
             cfg, sources, missing = source_snapshot_cached(force=force, light=light)
             source_versions={} if light else DATA_ARCH_V2.observe_sources(sources or {})
             engine=_engine_snapshot(sources)
-            if force and not monitor and not missing and not engine.get('ready'):
-                if _start_engine_rebuild_background(sources):
-                    engine={**engine,'building':True,'status':'REBUILDING'}
             engine_refresh_error=''
-            # [5] Sessiz ACTIVE accept (Halit kilidi) — pending varsa otomatik
+            # [5] Sessiz ACTIVE accept — rebuild kilidinden ÖNCE dene; kilitliyse kuyruk.
             if force and not monitor and revision_runtime.pending_auto_accept_enabled(cfg):
                 pending=list(cfg.get('_pending_source_updates') or [])
                 if pending:
                     auto_accept_results=auto_accept_pending_sources(cfg, pending)
-                    if any(x.get('ok') for x in auto_accept_results):
+                    if any(x.get('ok') and (x.get('result') or {}).get('status')!='QUEUED' for x in auto_accept_results):
                         cfg, sources, missing = source_snapshot_cached(force=True, light=False)
                         engine=_engine_snapshot(sources)
                         if not light:
                             source_versions=DATA_ARCH_V2.observe_sources(sources or {})
+                    elif any((x.get('result') or {}).get('queued') or (x.get('result') or {}).get('status')=='QUEUED' for x in auto_accept_results):
+                        _schedule_silent_accept_drain()
+            if force and not monitor and not missing and not engine.get('ready'):
+                if _start_engine_rebuild_background(sources):
+                    engine={**engine,'building':True,'status':'REBUILDING'}
+                    # Rebuild başladıysa kalan/pending accept’ler drain ile uygulanır.
+                    if force and revision_runtime.pending_auto_accept_enabled(cfg):
+                        for item in list(cfg.get('_pending_source_updates') or []):
+                            if item.get('deferred'):
+                                continue
+                            src=str(item.get('source') or '').upper()
+                            if src:
+                                _enqueue_silent_accept(src,'INDEX_BUILDING')
+                        _schedule_silent_accept_drain()
             if light:
                 source_health={'sources':[],'light':True}
             else:

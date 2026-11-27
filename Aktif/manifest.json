@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "product": "Talep Kontrol",
-  "release_id": "talep-43a414e0095c3a14",
-  "package": "Paketler/talep-43a414e0095c3a14/TalepKontrol.zip",
-  "sha256": "a11ad7f12b04daed4d156890b7c3b2b1f95675e336b5c0ab3a84b0848dab7967",
-  "size_bytes": 56359982,
-  "published_utc": "2026-11-27T16:23:24.774690+00:00",
-  "notes": "v1.0.4-diag-ctrlq: remove bottom source-ops bar; Ctrl+Q hidden log + task manager + copy for Halit"
+  "release_id": "talep-b938202a5adb1bc3",
+  "package": "Paketler/talep-b938202a5adb1bc3/TalepKontrol.zip",
+  "sha256": "0a23d54dda93efa33f96dd827edce0c6accec36a12aa84489e67898fbe681113",
+  "size_bytes": 56361300,
+  "published_utc": "2026-11-27T17:04:15.839986+00:00",
+  "notes": "v1.0.4-silent-accept-queue: queue silent accepts during INDEX_BUILDING; no false salt-okunur when ACTIVE rows present on first index"
 }

@@ -569,8 +569,15 @@ async function loadSourcesOnce({initial=false,silent=false,forceScan=false,backg
   logSourceOp('META',snap.degraded?'degraded':'ok',snap.light?'ACTIVE-only':'full meta',Object.keys(snap.sources||{}).length);
   state.meta.roots=snap.roots||[];state.meta.externalRoot=snap.externalRoot||'';state.meta.bundledRoot=snap.bundledRoot||'';state.meta.dataEngine=snap.dataEngine||{};state.meta.sourceHealth=snap.sourceHealth||{};state.meta.pendingSourceUpdates=snap.pendingSourceUpdates||[];state.meta.freshnessWarnings=snap.freshnessWarnings||[];state.meta.releaseId=snap.releaseId||snap.sourceAccess?.diagnosis?.releaseId||'';state.meta.silentActiveAccept=snap.silentActiveAccept!==false;
   if(Array.isArray(snap.autoAccept)&&snap.autoAccept.length){
-    const ok=snap.autoAccept.filter(x=>x.ok).map(x=>x.source);const bad=snap.autoAccept.filter(x=>!x.ok);
+    const queued=snap.autoAccept.filter(x=>x.ok&&(x.result?.queued||x.result?.status==='QUEUED'));
+    const ok=snap.autoAccept.filter(x=>x.ok&&!(x.result?.queued||x.result?.status==='QUEUED')).map(x=>x.source);
+    const bad=snap.autoAccept.filter(x=>!x.ok);
     if(ok.length){toast(`Otomatik ACTIVE: ${ok.join(', ')}`,'success',5200);ok.forEach(s=>logSourceOp(s,'accept','sessiz ACTIVE',null))}
+    if(queued.length){
+      const names=queued.map(x=>x.source).join(', ');
+      toast(`Sessiz accept kuyrukta (indeks bitince): ${names}`,'info',5200);
+      queued.forEach(x=>logSourceOp(x.source,'accept-queued',x.result?.message||'INDEX_BUILDING',null));
+    }
     bad.forEach(x=>{toast(`${x.source} otomatik kabul hatası: ${x.error||'?'}`,'warn',6500);logSourceOp(x.source,'accept-error',x.error||'?',null)});
   }
   applyRecordSecurity(snap.recordSecurity);
