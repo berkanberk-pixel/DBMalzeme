@@ -51,6 +51,28 @@ class BootHandoffTests(unittest.TestCase):
         files_block = py[py.index("if route == '/api/files'"):py.index("if route == '/api/file'")]
         self.assertIn("light=str((q.get('light')", files_block)
         self.assertIn('source_versions={} if light else', files_block)
+        self.assertIn('_active_only_light_snapshot', py)
+        self.assertIn('source_snapshot_cached(force=force, light=light)', files_block)
+
+    def test_boot_snapshot_has_timeout_and_fallback(self):
+        js = (ROOT / 'app.js').read_text(encoding='utf-8')
+        self.assertIn('function emptyBootSnapshot', js)
+        self.assertIn('light?12000', js)
+        self.assertIn('Boot snapshot fallback', js)
+        # Regression: duplicate const diag crashed the whole script (0% hang).
+        self.assertIn("const diagEl=$('#diagnostics')", js)
+        start = js.index('function renderCommon()')
+        end = js.index('\nfunction ', start + 10)
+        render = js[start:end]
+        self.assertEqual(render.count('const diag='), 1)
+        self.assertIn('const diagEl=', render)
+
+    def test_light_snapshot_skips_unc_scan(self):
+        import server as srv
+        cfg, sources, missing = srv._active_only_light_snapshot()
+        self.assertTrue(cfg.get('_light_snapshot'))
+        self.assertIsInstance(sources, dict)
+        self.assertEqual(cfg.get('_candidate_sources'), {})
 
 
 if __name__ == '__main__':

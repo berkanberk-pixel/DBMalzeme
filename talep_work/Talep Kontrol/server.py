@@ -145,16 +145,76 @@ DEFAULT_CONFIG = {
 # veya veri klasörü değiştiğinde cache açıkça geçersiz kılınır.
 _SNAPSHOT_CACHE = {'value': None, 'created': 0.0}
 _SNAPSHOT_LOCK = threading.RLock()
+_SNAPSHOT_REFRESH_LOCK = threading.Lock()
+_SNAPSHOT_REFRESH_STARTED = False
 
 def invalidate_source_snapshot():
     with _SNAPSHOT_LOCK:
         _SNAPSHOT_CACHE['value'] = None
         _SNAPSHOT_CACHE['created'] = 0.0
 
-def source_snapshot_cached(force=False):
+def _active_only_light_snapshot():
+    """Boot/light path: ACTIVE disk state only — no UNC candidate scan.
+
+    Slow corporate shares must not block first paint; full managed snapshot
+    runs in the background and fills _SNAPSHOT_CACHE.
+    """
+    cfg = load_config()
+    state = _json_load(SOURCE_ACTIVE_STATE_PATH, {})
+    if not isinstance(state, dict):
+        state = {}
+    active = {}
+    missing = []
+    for source in SOURCE_NAMES:
+        info = _deserialize_source_info(source, state.get(source))
+        active[source] = info
+        if not info:
+            missing.append(source)
+    cfg['_pending_source_updates'] = []
+    cfg['_candidate_sources'] = {}
+    cfg.setdefault('_scan_diagnostics', []).append({
+        'level': 'warn',
+        'text': 'Açılış hafif mod: ağ aday taraması arka planda. Yerel ACTIVE kopya kullanılıyor.',
+    })
+    cfg['_light_snapshot'] = True
+    return cfg, active, missing
+
+def _schedule_managed_snapshot_refresh():
+    global _SNAPSHOT_REFRESH_STARTED
+    with _SNAPSHOT_REFRESH_LOCK:
+        if _SNAPSHOT_REFRESH_STARTED:
+            return
+        _SNAPSHOT_REFRESH_STARTED = True
+
+    def worker():
+        global _SNAPSHOT_REFRESH_STARTED
+        try:
+            value = managed_source_snapshot()
+            with _SNAPSHOT_LOCK:
+                _SNAPSHOT_CACHE['value'] = value
+                _SNAPSHOT_CACHE['created'] = time.time()
+        except Exception as exc:
+            try:
+                print('Arka plan kaynak taraması: '+str(exc), flush=True)
+            except Exception:
+                pass
+        finally:
+            with _SNAPSHOT_REFRESH_LOCK:
+                _SNAPSHOT_REFRESH_STARTED = False
+
+    threading.Thread(target=worker, name='talep-snapshot-refresh', daemon=True).start()
+
+def source_snapshot_cached(force=False, light=False):
     with _SNAPSHOT_LOCK:
         if not force and _SNAPSHOT_CACHE.get('value') is not None and time.time()-_SNAPSHOT_CACHE.get('created',0)<30:
             return _SNAPSHOT_CACHE['value']
+        if light and not force:
+            # Prefer memory miss → ACTIVE-only (no UNC). Refresh candidates async.
+            value = _active_only_light_snapshot()
+            _SNAPSHOT_CACHE['value'] = value
+            _SNAPSHOT_CACHE['created'] = time.time()
+            _schedule_managed_snapshot_refresh()
+            return value
         value = managed_source_snapshot()
         _SNAPSHOT_CACHE['value'] = value
         _SNAPSHOT_CACHE['created'] = time.time()
@@ -4764,7 +4824,8 @@ class Handler(BaseHTTPRequestHandler):
                     })
                 # Damga değişti → gerçek tarama
                 force=True
-            cfg, sources, missing = source_snapshot_cached(force=force)
+            # light=1: ACTIVE disk only (no UNC). Slow shares must not block boot.
+            cfg, sources, missing = source_snapshot_cached(force=force, light=light)
             source_versions={} if light else DATA_ARCH_V2.observe_sources(sources or {})
             engine=_engine_snapshot(sources)
             if force and not monitor and not missing and not engine.get('ready'):
@@ -4777,11 +4838,14 @@ class Handler(BaseHTTPRequestHandler):
                 if pending:
                     auto_accept_results=auto_accept_pending_sources(cfg, pending)
                     if any(x.get('ok') for x in auto_accept_results):
-                        cfg, sources, missing = source_snapshot_cached(force=True)
+                        cfg, sources, missing = source_snapshot_cached(force=True, light=False)
                         engine=_engine_snapshot(sources)
                         if not light:
                             source_versions=DATA_ARCH_V2.observe_sources(sources or {})
-            source_health=DATA_ARCH_V2.health(engine,engine.get('quality') or {}, sources or {})
+            if light:
+                source_health={'sources':[],'light':True}
+            else:
+                source_health=DATA_ARCH_V2.health(engine,engine.get('quality') or {}, sources or {})
             warn_h=float(cfg.get('freshness_warn_hours') or revision_runtime.SOURCE_FRESHNESS_WARN_HOURS)
             access=source_access_state(cfg,sources,engine)
             try:
@@ -4792,6 +4856,7 @@ class Handler(BaseHTTPRequestHandler):
                 'ok': True,
                 'monitor': monitor,
                 'stampOnly': False,
+                'light': bool(light or cfg.get('_light_snapshot')),
                 'sources': sources,
                 'missing': missing,
                 'roots': cfg.get('roots', []),
@@ -4808,7 +4873,7 @@ class Handler(BaseHTTPRequestHandler):
                 'engineRefreshError': engine_refresh_error,
                 'pendingSourceUpdates': cfg.get('_pending_source_updates', []),
                 'sourceHealth': source_health,
-                'freshnessWarnings': revision_runtime.freshness_warnings(source_health, warn_h),
+                'freshnessWarnings': [] if light else revision_runtime.freshness_warnings(source_health, warn_h),
                 'sourceAccess': access,
                 'recordSecurity': record_security_status(),
                 'autoAccept': auto_accept_results,

@@ -240,8 +240,21 @@ function validateSource(src){
   return issues;
 }
 
+function emptyBootSnapshot(reason){
+  return{
+    ok:true,light:true,degraded:true,degradedReason:String(reason||'timeout'),
+    sources:Object.fromEntries(SOURCES.map(s=>[s,null])),missing:[...SOURCES],
+    roots:[],externalRoot:'',bundledRoot:'',dataEngine:{usable:false,ready:false,status:'UNKNOWN'},
+    sourceHealth:{sources:[],light:true},pendingSourceUpdates:[],freshnessWarnings:[],
+    sourceAccess:{current:false,reason:'Kaynak meta zaman aşımı / önbellek yok — arka plan senkronu devam ediyor.',diagnosis:{reasonCode:'BOOT_TIMEOUT',missing:[...SOURCES]}},
+    recordSecurity:{sharedWritesEnabled:false,reason:'Kaynak meta henüz doğrulanamadı.'},
+    autoAccept:[],silentActiveAccept:true,releaseId:'',scanDiagnostics:[{level:'warn',text:String(reason||'Açılış zaman aşımı')}]
+  };
+}
 async function fetchSnapshot(forceScan=false, light=false){
-  const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),forceScan?240000:45000);
+  // Light/boot: short timeout so slow UNC never freezes the loading screen.
+  const ms=forceScan?240000:(light?12000:45000);
+  const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),ms);
   try{
     const qs=[];
     if(forceScan)qs.push('refresh=1');
@@ -251,7 +264,7 @@ async function fetchSnapshot(forceScan=false, light=false){
     if(!r.ok)throw new Error(`Yerel veri servisi yanıt vermedi (${r.status}).`);
     return await r.json();
   }catch(e){
-    if(e?.name==='AbortError')throw new Error(forceScan?'Veri yenileme 240 saniyeyi aştı. Kaynak dosyalarını kontrol edin.':'CSV kaynak taraması 45 saniyeyi aştı. Veri klasörünü kontrol edin.');
+    if(e?.name==='AbortError')throw new Error(forceScan?'Veri yenileme 240 saniyeyi aştı. Kaynak dosyalarını kontrol edin.':(light?'Hafif kaynak meta 12 sn içinde gelmedi.':'CSV kaynak taraması 45 saniyeyi aştı. Veri klasörünü kontrol edin.'));
     throw e;
   }finally{clearTimeout(timer)}
 }
@@ -366,9 +379,20 @@ async function loadSourcesOnce({initial=false,silent=false,forceScan=false}={}){
   if(!silent){
     document.body.classList.add('booting');
     setLoading(8,lightMeta?'Kaynak damgaları (hafif)…':'Kaynak taraması…',
-      lightMeta?'Önbellek / usable indeks ile hızlı ilk ekran.':'Ağ/merkezi kaynak damgaları okunuyor.');
+      lightMeta?'ACTIVE önbellek / usable indeks · ağ taraması arka planda.':'Ağ/merkezi kaynak damgaları okunuyor.');
   }
-  const snap=await fetchSnapshot(forceScan,lightMeta);
+  let snap;
+  try{
+    snap=await fetchSnapshot(forceScan,lightMeta);
+  }catch(e){
+    // Initial progressive: never stay on loading forever — open degraded UI.
+    if(initial&&lightMeta&&!forceScan){
+      console.warn('Boot snapshot fallback:',e);
+      snap=emptyBootSnapshot(e.message||e);
+      state.diagnostics.push({level:'warn',text:'Açılış fallback: '+(e.message||e)});
+      if(!silent)setLoading(14,'Önbellek yok / zaman aşımı','İlk ekran açılıyor; senkron arka planda.');
+    }else throw e;
+  }
   state.meta.roots=snap.roots||[];state.meta.externalRoot=snap.externalRoot||'';state.meta.bundledRoot=snap.bundledRoot||'';state.meta.dataEngine=snap.dataEngine||{};state.meta.sourceHealth=snap.sourceHealth||{};state.meta.pendingSourceUpdates=snap.pendingSourceUpdates||[];state.meta.freshnessWarnings=snap.freshnessWarnings||[];state.meta.releaseId=snap.releaseId||snap.sourceAccess?.diagnosis?.releaseId||'';state.meta.silentActiveAccept=snap.silentActiveAccept!==false;
   if(Array.isArray(snap.autoAccept)&&snap.autoAccept.length){
     const ok=snap.autoAccept.filter(x=>x.ok).map(x=>x.source);const bad=snap.autoAccept.filter(x=>!x.ok);
@@ -942,12 +966,12 @@ function renderCommon(){
     }).join('');
   }
 
-  const diag=$('#diagnostics');
-  if(diag){
+  const diagEl=$('#diagnostics');
+  if(diagEl){
     if(!state.diagnostics.length){
-      diag.innerHTML=`<div class="diag ok">Veri kaynaklarında kritik bir tutarsızlık algılanmadı.</div>`;
+      diagEl.innerHTML=`<div class="diag ok">Veri kaynaklarında kritik bir tutarsızlık algılanmadı.</div>`;
     }else{
-      diag.innerHTML=state.diagnostics.map(d=>`<div class="diag ${d.level==='bad'?'bad':d.level==='warn'?'warn':'ok'}">${esc(d.text||'')}</div>`).join('');
+      diagEl.innerHTML=state.diagnostics.map(d=>`<div class="diag ${d.level==='bad'?'bad':d.level==='warn'?'warn':'ok'}">${esc(d.text||'')}</div>`).join('');
     }
   }
 
@@ -3619,23 +3643,28 @@ window.addEventListener('beforeunload',signalClientClose);
 window.addEventListener('pageshow',()=>{closeSignalSent=false;sendHeartbeat()});
 
 (async function boot(){
-  initNav();initSourceTableViews();initWorkOperationViews();initEvents();setControlMode(state.ui.mode);
-  applySourceAccess({current:false,reason:'Kaynaklar arka planda doğrulanıyor.'});
   document.body.classList.add('booting');
-  setLoading(4,'Progressive açılış…','Usable indeks + hafif kaynak meta; ağır yük arka planda.');
+  setLoading(3,'Progressive açılış…','Usable indeks + hafif kaynak meta; ağ yavaşsa takılmaz.');
+  try{
+    initNav();initSourceTableViews();initWorkOperationViews();initEvents();setControlMode(state.ui.mode);
+  }catch(e){console.error('UI init:',e)}
+  applySourceAccess({current:false,reason:'Kaynaklar arka planda doğrulanıyor.'});
+  setLoading(5,'Progressive açılış…','Hafif /api/files · 12 sn tavan · fallback açık.');
   // Native splash handoff NOW — do not wait for source sync (navigationReady gate).
   await new Promise(resolve=>requestAnimationFrame(()=>setTimeout(resolve,0)));
   signalUiShellReady();
   try{
-    // [1] Progressive: light /api/files, priority books, lazy MB51/KESIFLER; bg forceScan.
+    // [1] Progressive: light /api/files (ACTIVE-only server path), timeout+fallback, bg sync.
     await loadSources({initial:true,silent:false,forceScan:false});
   }catch(e){
     console.error(e);
     const msg=normalizeServiceError(e);
     applySourceAccess({current:false,reason:'Kaynaklar yüklenemedi: '+msg});
     state.diagnostics.push({level:'bad',text:msg});
-    renderCommon();
+    try{renderCommon()}catch(_){}
+    hideLoading();
     showLoadingIssue(msg);
     toast(msg,'warn',7000);
+    scheduleBackgroundSourceSync();
   }
 })();
