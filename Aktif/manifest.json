@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "product": "Talep Kontrol",
-  "release_id": "talep-e5e44d8f1391afc1",
-  "package": "Paketler/talep-e5e44d8f1391afc1/TalepKontrol.zip",
-  "sha256": "e5e44d8f1391afc1ebc594991511f446af830e43c79b5ad3047f0ce8d5ea9aff",
-  "size_bytes": 56282796,
-  "published_utc": "2026-11-27T10:39:20.566821+00:00",
-  "notes": "v1.0.4-install-lock: installer 6.2.1 kills locking python/WebView2 before swap; ux-ops included. Use new Talep_Kontrol.exe with this Aktif package."
+  "release_id": "talep-4b7f9c09bfea6c48",
+  "package": "Paketler/talep-4b7f9c09bfea6c48/TalepKontrol.zip",
+  "sha256": "4b7f9c09bfea6c48c2d7afd4adeb610307def4b2be79dc003470686cd26ebaa0",
+  "size_bytes": 56286842,
+  "published_utc": "2026-11-27T10:56:01.577111+00:00",
+  "notes": "v1.0.4-central-index: 0-Database/KAYNAK_INDEKS read-only source SQLite snapshot; first-boot seed; publish after local rebuild; fresher-wins; COMMITTED decisions unchanged; no shared writable SQLite"
 }

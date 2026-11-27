@@ -35,6 +35,7 @@ import project_ids28r as project_ids28r
 from data_architecture_v2 import DataArchitectureV2
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import central_security
+import central_index_snapshot
 import mb51_reconciliation
 import commitment_balances
 import capacity_projection
@@ -3949,6 +3950,15 @@ def _rebuild_engine(sources=None, changed_sources=None, row_diffs=None):
                 DATA_ARCH_V2.audit('INDEX','ACTIVE_SWITCH','SYSTEM','INDEX_BUILD',state.get('buildId',''),{'sourceDigest':state.get('sourceDigest'),'quality':state.get('quality'),'incremental':result.get('incremental'),'rowDiffs':row_diffs or {}})
             except Exception:
                 pass
+            # Merkez salt-okunur indeks snapshot (yazılabilir ortak SQLite yok).
+            try:
+                cfg = load_config()
+                if central_index_snapshot.enabled(cfg):
+                    root = Path(str(cfg.get('shared_record_root') or ''))
+                    rel = str(cfg.get('central_index_rel') or central_index_snapshot.REL_DIR)
+                    central_index_snapshot.publish_in_background(APP_DIR, root, rel=rel)
+            except Exception:
+                pass
             # Eski RAM önbellekleri yeni indeksle karışmasın.
             with _FAST_CACHE_LOCK:
                 _FAST_CACHE.clear()
@@ -4938,9 +4948,22 @@ def _initial_engine_prepare():
     """Prepare the first verified read index without delaying the local GUI heartbeat.
 
     New source revisions must still pass the existing controlled source-acceptance flow.
+    First boot prefers seeding from central read-only KAYNAK_INDEKS snapshot when local
+    ACTIVE is missing — avoids cold UNC full rebuild when a published snapshot exists.
     """
     time.sleep(0.8)
     try:
+        cfg = load_config()
+        if central_index_snapshot.enabled(cfg):
+            try:
+                central_index_snapshot.seed_local_from_central(
+                    APP_DIR, Path(str(cfg.get('shared_record_root') or '')),
+                    rel=str(cfg.get('central_index_rel') or central_index_snapshot.REL_DIR))
+            except Exception as seed_exc:
+                try:
+                    DATA_ARCH_V2.audit('INDEX','CENTRAL_SEED_SKIP','SYSTEM','INDEX','SEED',{'error':str(seed_exc)})
+                except Exception:
+                    pass
         cfg, sources, missing = source_snapshot_cached(force=False)
         engine=_engine_snapshot(sources)
         if missing and (engine.get('usable') or not any(sources.get(k) for k in ('MB51','MB52','ZMM048','KESIFLER'))):

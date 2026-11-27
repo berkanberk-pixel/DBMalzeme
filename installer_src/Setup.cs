@@ -982,7 +982,7 @@ internal sealed class Setup : Form
 			"startup_runner.py", "styles.css", "ux28j.css", "ux28j.js", "webgl-themes28l.css", "webgl-themes28l.js", "control_read_index.py",
 			"data_architecture_v2.py", "f604_summary.py", "form_excel.py", "kesif_drafts28q.py", "project_ids28r.py", "mb51_reconciliation.py",
 			"commitment_balances.py", "capacity_projection.py", "capacity_source_facts.py", "operations_aggregation.py", "central_security.py",
-			"indexed_engine.py", "parquet_minimal.py", "source_row_diff.py"
+			"indexed_engine.py", "parquet_minimal.py", "source_row_diff.py", "central_index_snapshot.py"
 		}, StringComparer.OrdinalIgnoreCase);
 		ZipArchiveEntry configEntry = null, launcherEntry = null;
 		foreach (var entry in zip.Entries)
