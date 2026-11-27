@@ -18,7 +18,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 
 [assembly: AssemblyTitle("Talep Kontrol Kurulum")]
-[assembly: AssemblyVersion("6.2.0.0")]
+[assembly: AssemblyVersion("6.2.1.0")]
 
 internal static class Art
 {
@@ -551,7 +551,42 @@ internal sealed class Setup : Form
 		});
 	}
 
-	static void StopRunningServices(Action<string> log)
+	static bool PathLooksLikeTalep(string path)
+	{
+		if (string.IsNullOrWhiteSpace(path)) return false;
+		var p = path.Replace('/', '\\');
+		return p.IndexOf("\\TalepKontrol", StringComparison.OrdinalIgnoreCase) >= 0
+			|| p.IndexOf("\\Talep Kontrol", StringComparison.OrdinalIgnoreCase) >= 0
+			|| p.IndexOf("windows_launcher.py", StringComparison.OrdinalIgnoreCase) >= 0
+			|| p.IndexOf("START_GUI.ps1", StringComparison.OrdinalIgnoreCase) >= 0
+			|| p.IndexOf("\\TalepKontrol\\WebView2UserData", StringComparison.OrdinalIgnoreCase) >= 0;
+	}
+
+	static void TryKillProcess(Process process, Action<string> log, string reason)
+	{
+		try
+		{
+			if (process == null || process.HasExited) return;
+			if (process.Id == Process.GetCurrentProcess().Id) return;
+			log("Kilitli süreç kapatılıyor: " + process.ProcessName + " (" + process.Id + ") · " + reason);
+			try { process.CloseMainWindow(); } catch { }
+			if (!process.WaitForExit(800))
+			{
+				process.Kill();
+				process.WaitForExit(2000);
+			}
+		}
+		catch (Exception ex)
+		{
+			try { log("Süreç kapatılamadı: " + process.ProcessName + " · " + ex.Message); } catch { }
+		}
+		finally
+		{
+			try { process.Dispose(); } catch { }
+		}
+	}
+
+	static void StopRunningServices(Action<string> log, string installDir = null)
 	{
 		for (int port = 8765; port <= 8769; port++)
 		{
@@ -573,23 +608,57 @@ internal sealed class Setup : Form
 			}
 			catch { }
 		}
-		Thread.Sleep(600);
-		foreach (var name in new[] { "Talep_Kontrol", "msedgewebview2" })
+		Thread.Sleep(700);
+
+		// Window-title filter: START_GUI WebView penceresi "Talep Kontrol"
+		try
 		{
-			try
+			var killTitle = new ProcessStartInfo
 			{
-				foreach (var p in Process.GetProcessesByName(name))
-				{
-					try
-					{
-						// Yalnız WebView2 kullanıcı veri klasörü TalepKontrol olanları hedefle — güvenli taraf: kurulum klasörünü kilitleyenleri bırak.
-						p.Dispose();
-					}
-					catch { }
-				}
-			}
-			catch { }
+				FileName = "taskkill",
+				Arguments = "/F /FI \"WINDOWTITLE eq Talep Kontrol*\"",
+				CreateNoWindow = true,
+				UseShellExecute = false,
+				RedirectStandardOutput = true,
+				RedirectStandardError = true
+			};
+			using var tp = Process.Start(killTitle);
+			tp?.WaitForExit(3000);
 		}
+		catch { }
+
+		var installFull = string.IsNullOrWhiteSpace(installDir) ? "" : Path.GetFullPath(installDir.TrimEnd('\\'));
+		foreach (var name in new[] { "python", "pythonw", "powershell", "pwsh", "msedgewebview2", "wscript", "cscript" })
+		{
+			Process[] list = null;
+			try { list = Process.GetProcessesByName(name); }
+			catch { continue; }
+			foreach (var p in list)
+			{
+				try
+				{
+					string module = null;
+					try { module = p.MainModule?.FileName; } catch { }
+					string title = null;
+					try { title = p.MainWindowTitle; } catch { }
+					bool match =
+						(!string.IsNullOrEmpty(installFull) && !string.IsNullOrEmpty(module) &&
+							module.StartsWith(installFull + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+						|| PathLooksLikeTalep(module)
+						|| (!string.IsNullOrEmpty(title) && title.IndexOf("Talep Kontrol", StringComparison.OrdinalIgnoreCase) >= 0);
+					// WebView2: yalnızca TalepKontrol kullanıcı veri yolu / başlık eşleşirse
+					if (string.Equals(name, "msedgewebview2", StringComparison.OrdinalIgnoreCase) && !match)
+					{
+						p.Dispose();
+						continue;
+					}
+					if (match) TryKillProcess(p, log, module ?? title ?? name);
+					else p.Dispose();
+				}
+				catch { try { p.Dispose(); } catch { } }
+			}
+		}
+		Thread.Sleep(500);
 	}
 
 	static void TryDeleteDirectory(string path, Action<string> log)
@@ -618,10 +687,16 @@ internal sealed class Setup : Form
 	void PurgePreviousInstallation(string dest)
 	{
 		Log("Temiz kurulum: eski süreçler ve yerel veriler temizleniyor…");
-		StopRunningServices(Log);
+		StopRunningServices(Log, dest);
 
 		var programs = Path.Combine(LocalAppData, "Programs");
 		TryDeleteDirectory(dest, Log);
+		if (Directory.Exists(dest))
+		{
+			Log("Hedef klasör hâlâ kilitli; süreçler yeniden kapatılıyor…");
+			StopRunningServices(Log, dest);
+			TryDeleteDirectory(dest, Log);
+		}
 		if (Directory.Exists(programs))
 		{
 			foreach (var dir in Directory.GetDirectories(programs))
@@ -664,13 +739,16 @@ internal sealed class Setup : Form
 
 	void Deploy(ActivePublication publication, string dest, bool replacing, bool cleanInstall)
 	{
-		string stage = dest + ".hazirlik-" + Guid.NewGuid().ToString("N");
-		string previous = dest + ".gecici-" + Guid.NewGuid().ToString("N");
-		string tempRoot = Path.Combine(LocalAppData, "TalepKontrol", "Temp");
+		string stage = Path.GetFullPath(dest + ".hazirlik-" + Guid.NewGuid().ToString("N"));
+		string previous = Path.GetFullPath(dest + ".gecici-" + Guid.NewGuid().ToString("N"));
 		string zipCopy = Path.Combine(Path.GetTempPath(), "TalepKontrol-" + Guid.NewGuid().ToString("N") + ".zip");
 		bool movedOld = false;
 		try
 		{
+			// ZIP aktarımından önce çalışan uygulamayı kapat — aksi halde 113 dosya
+			// aktarılsa bile hedef klasör taşınamaz / temizlenemez.
+			StopRunningServices(Log, dest);
+
 			if (cleanInstall)
 			{
 				// ZIP kopyası %TEMP% altında; kullanıcı veri kökü güvenle silinebilir.
@@ -685,6 +763,7 @@ internal sealed class Setup : Form
 				throw new InvalidDataException("İndirilen paket manifest SHA-256 değeriyle eşleşmiyor.");
 			string prefix = Validate(zipCopy);
 			Directory.CreateDirectory(stage);
+			string stagePrefix = stage + Path.DirectorySeparatorChar;
 			using (var zip = ZipFile.OpenRead(zipCopy))
 			{
 				foreach (var entry in zip.Entries)
@@ -695,7 +774,7 @@ internal sealed class Setup : Form
 					var relative = fullName.Substring(prefix.Length);
 					if (relative.Length == 0) continue;
 					var fullPath = Path.GetFullPath(Path.Combine(stage, relative.Replace('/', Path.DirectorySeparatorChar)));
-					if (!fullPath.StartsWith(stage + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+					if (!fullPath.StartsWith(stagePrefix, StringComparison.OrdinalIgnoreCase))
 						throw new InvalidDataException("ZIP hedefi güvenli klasör dışında.");
 					if (fullName.EndsWith("/")) { Directory.CreateDirectory(fullPath); continue; }
 					Directory.CreateDirectory(Path.GetDirectoryName(fullPath));
@@ -732,20 +811,47 @@ internal sealed class Setup : Form
 			}
 
 			stop.Token.ThrowIfCancellationRequested();
+			// ZIP bitti (ör. windows_launcher.py = son dosya). Swap öncesi kilitleri tekrar çöz.
+			StopRunningServices(Log, dest);
+			if (!replacing && Directory.Exists(dest))
+			{
+				TryDeleteDirectory(dest, Log);
+			}
 			if (Directory.Exists(dest) != replacing)
-				throw new IOException("Hedef klasör kurulum sırasında değişti. Yeniden başlatıp kurulumu onaylayın.");
+			{
+				throw new IOException(
+					"Eski kurulum klasörü kilitli veya kurulum sırasında değişti. " +
+					"Talep Kontrol penceresini ve arka plan Python/WebView2 süreçlerini kapatıp yeniden deneyin.");
+			}
 
 			Directory.CreateDirectory(Path.GetDirectoryName(dest));
 			if (replacing)
 			{
-				Directory.Move(dest, previous);
-				movedOld = true;
+				try
+				{
+					Directory.Move(dest, previous);
+					movedOld = true;
+				}
+				catch (Exception ex)
+				{
+					StopRunningServices(Log, dest);
+					try
+					{
+						Directory.Move(dest, previous);
+						movedOld = true;
+					}
+					catch
+					{
+						throw new IOException(
+							"Mevcut kurulum taşınamadı (dosya kilidi). Talep Kontrol’u kapatın. Ayrıntı: " + ex.Message, ex);
+					}
+				}
 			}
 			try { Directory.Move(stage, dest); }
-			catch
+			catch (Exception ex)
 			{
 				if (movedOld && !Directory.Exists(dest)) Directory.Move(previous, dest);
-				throw;
+				throw new IOException("Yeni paket hedef klasöre alınamadı: " + ex.Message, ex);
 			}
 
 			try { WriteReceipt(publication, dest, cleanInstall); }
