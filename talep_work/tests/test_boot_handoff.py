@@ -25,6 +25,9 @@ class BootHandoffTests(unittest.TestCase):
         self.assertIn("qs.push('light=1')", js)
         self.assertIn('BOOT_PRIORITY_SOURCES', js)
         self.assertIn('LAZY_BOOK_SOURCES', js)
+        self.assertIn('INDEX_DECISION_SOURCES', js)
+        self.assertIn('hydrateDecisionFromIndex', js)
+        self.assertIn("LAZY_BOOK_SOURCES=new Set(['MB51','KESIFLER','ZMM048','MB52','ZMM098'])", js)
 
     def test_show_loading_issue_not_fatal_after_handoff(self):
         js = (ROOT / 'app.js').read_text(encoding='utf-8')

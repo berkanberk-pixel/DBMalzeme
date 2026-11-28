@@ -860,6 +860,82 @@ def grid_guarantee(index_db:Path,q:str,page:int,size:int,column_filters=None,sor
         total=c.execute('SELECT COUNT(*) FROM zmm098'+where,args).fetchone()[0];rows=c.execute('SELECT uy,dy,dy_desc dyDesc,main,cash,manual,stock_value stockValue,available FROM zmm098'+where+_q28_grid_order(fields,sort_by,sort_dir)+' LIMIT ? OFFSET ?',args+[size,off]).fetchall()
     pages=max(1,(total+size-1)//size);return {'rows':[dict(r) for r in rows],'total':total,'page':min(page,pages),'pages':pages,'pageSize':size,'source':'ZMM098','engine':'SQLITE_INDEX'}
 
+def grid_reservations(index_db:Path,q:str,page:int,size:int,column_filters=None,sort_by='',sort_dir='asc'):
+    """Paged ZMM048 from local index — replaces IndexedDB /api/book for reservations UI."""
+    page,size,off=_page(page,size);nq=norm(q);where='';args=[]
+    if nq:
+        where=' WHERE lower(reservation_no||\' \'||material_code||\' \'||material_desc||\' \'||source_uy||\' \'||source_dy||\' \'||target_uy||\' \'||target_dy) LIKE ?'
+        args=['%'+nq+'%']
+    fields={'reservationNo':'reservation_no','materialCode':'material_code','materialDesc':'material_desc','qty':'qty','uom':'uom','sourceUY':'source_uy','sourceDY':'source_dy','recvUY':'target_uy','recvDY':'target_dy'}
+    more,vals=_q28_grid_predicates(column_filters or {},fields)
+    where+=(' AND ' if where else ' WHERE ')+' AND '.join(more) if more else ''
+    args+=vals
+    with connect(index_db) as c:
+        total=c.execute('SELECT COUNT(*) FROM zmm048'+where,args).fetchone()[0]
+        rows=c.execute(
+            'SELECT reservation_no reservationNo,material_code materialCode,material_desc materialDesc,qty,uom,'
+            'source_uy sourceUY,source_dy sourceDY,target_uy recvUY,target_dy recvDY FROM zmm048'
+            +where+_q28_grid_order(fields,sort_by,sort_dir)+' LIMIT ? OFFSET ?',args+[size,off]).fetchall()
+    pages=max(1,(total+size-1)//size)
+    return {'rows':[dict(r) for r in rows],'total':total,'page':min(page,pages),'pages':pages,'pageSize':size,'source':'ZMM048','engine':'SQLITE_INDEX'}
+
+def decision_dataset(index_db:Path,source:str):
+    """Full decision rows from local index for ZMM048/MB52/ZMM098 (no IndexedDB book)."""
+    src=str(source or '').upper().strip()
+    with connect(index_db) as c:
+        if src=='ZMM048':
+            rows=c.execute(
+                'SELECT reservation_no reservationNo,material_code materialCode,material_desc materialDesc,'
+                'qty,uom,source_uy sourceUY,source_dy sourceDY,target_uy recvUY,target_dy recvDY '
+                'FROM zmm048 ORDER BY reservation_no,material_code,id').fetchall()
+            out=[]
+            for i,r in enumerate(rows,1):
+                d=dict(r)
+                out.append({
+                    'rowNo':i,'itemNo':'','reservationNo':d.get('reservationNo') or '','status':'',
+                    'approvalStatus':'','sourceUY':d.get('sourceUY') or '','sourceDY':d.get('sourceDY') or '',
+                    'sourceDYDesc':'','recvUY':d.get('recvUY') or '','recvDY':d.get('recvDY') or '',
+                    'recvUYDesc':'','movementType':'','materialCode':d.get('materialCode') or '',
+                    'materialDesc':d.get('materialDesc') or '','qty':float(d.get('qty') or 0),
+                    'deliveredQty':0.0,'uom':d.get('uom') or '','raw':None,'fromIndex':True,
+                })
+            return {'rows':out,'total':len(out),'source':'ZMM048','engine':'SQLITE_INDEX','mode':'decision'}
+        if src=='MB52':
+            rows=c.execute(
+                'SELECT plant,dy,dy_desc dyDesc,material_group materialGroup,material_group_desc materialGroupDesc,'
+                'material_code materialCode,material_desc materialDesc,uom,qty,total_value totalValue,'
+                'unrestricted_value unrestrictedValue,valuation_type valuationType,depot_type depotType '
+                'FROM mb52 ORDER BY plant,dy,material_code,id').fetchall()
+            out=[]
+            for r in rows:
+                d=dict(r);q=float(d.get('qty') or 0);uv=float(d.get('unrestrictedValue') or 0);tv=float(d.get('totalValue') or 0)
+                out.append({
+                    'plant':d.get('plant') or '','dy':d.get('dy') or '','dyDesc':d.get('dyDesc') or '',
+                    'materialCode':d.get('materialCode') or '','materialDesc':d.get('materialDesc') or '',
+                    'materialGroup':d.get('materialGroup') or '','materialGroupDesc':d.get('materialGroupDesc') or '',
+                    'uom':d.get('uom') or '','qty':q,'unrestrictedValue':uv,'totalValue':tv,
+                    'valuationType':d.get('valuationType') or '','depotType':d.get('depotType') or '',
+                    'currency':'','unitPrice':(uv/q if q>0 and uv>0 else (tv/q if q>0 and tv>0 else 0)),
+                    'raw':None,'fromIndex':True,
+                })
+            return {'rows':out,'total':len(out),'source':'MB52','engine':'SQLITE_INDEX','mode':'decision'}
+        if src=='ZMM098':
+            rows=c.execute(
+                'SELECT uy,dy,dy_desc dyDesc,main,cash,manual,stock_value stockValue,available '
+                'FROM zmm098 ORDER BY uy,dy,id').fetchall()
+            out=[]
+            for r in rows:
+                d=dict(r)
+                out.append({
+                    'uy':d.get('uy') or '','dy':d.get('dy') or '','dyDesc':d.get('dyDesc') or '',
+                    'main':float(d.get('main') or 0),'cash':float(d.get('cash') or 0),
+                    'manual':float(d.get('manual') or 0),'stockValue':float(d.get('stockValue') or 0),
+                    'available':float(d.get('available') or 0),'availableSource':'INDEX',
+                    'raw':None,'fromIndex':True,
+                })
+            return {'rows':out,'total':len(out),'source':'ZMM098','engine':'SQLITE_INDEX','mode':'decision'}
+    raise ValueError('decision view yalnız ZMM048/MB52/ZMM098 için')
+
 def grid_stocks(index_db:Path,q:str,page:int,size:int,scope:str='mb51_group',column_filters=None,sort_by='',sort_dir='asc'):
     page,size,off=_page(page,size);nq=norm(q);scope=str(scope or 'mb51_group');conds=[];args=[]
     if nq:conds.append('s.search_text LIKE ?');args.append('%'+nq+'%')

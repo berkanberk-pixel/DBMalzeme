@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "product": "Talep Kontrol",
-  "release_id": "talep-57b6e79bb0bddc68",
-  "package": "Paketler/talep-57b6e79bb0bddc68/TalepKontrol.zip",
-  "sha256": "9d3b7e982678f680840ae62c3237596808c810fd3f0695e682aaa1c9876bc2fe",
-  "size_bytes": 56297995,
-  "published_utc": "2026-11-28T17:56:38.520612+00:00",
-  "notes": "v1.0.4-notif-mb51-cache: bildirim MB51 reconcile TTL+digest cache; her tick full değil"
+  "release_id": "talep-ce0206fea6b49158",
+  "package": "Paketler/talep-ce0206fea6b49158/TalepKontrol.zip",
+  "sha256": "3ba201762c1232704ba4e1be91b93a4eb411a4e18183e07a762db4a71d49e626",
+  "size_bytes": 56368986,
+  "published_utc": "2026-11-28T18:02:34.437127+00:00",
+  "notes": "v1.0.4-book-grid: ZMM048/MB52/ZMM098 IndexedDB book kaldır; indeks+/api/grid decision"
 }

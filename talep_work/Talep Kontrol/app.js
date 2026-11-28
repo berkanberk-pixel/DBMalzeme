@@ -368,9 +368,11 @@ const sourceOpsLog=[];
 const diagTasks=new Map();
 let diagConsoleOpen=false;
 let diagTaskTimer=null;
-// [1] Progressive: first-screen priority; MB51/KESIFLER stay lazy API.
-const BOOT_PRIORITY_SOURCES=['TANIMLAR','ZMM048','ZMM098','MB52'];
-const LAZY_BOOK_SOURCES=new Set(['MB51','KESIFLER']);
+// [1]+[14]/hız-3: TANIMLAR book; ZMM048/MB52/ZMM098 indeks+/api/grid (IndexedDB book yok).
+const BOOT_PRIORITY_SOURCES=['TANIMLAR'];
+const INDEX_DECISION_SOURCES=['ZMM048','MB52','ZMM098'];
+const LAZY_BOOK_SOURCES=new Set(['MB51','KESIFLER','ZMM048','MB52','ZMM098']);
+const indexDecisionDatasets={};
 function logSourceOp(source,status,detail='',rows=null){
   const ts=new Date().toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
   const line={ts,source:String(source||'—'),status:String(status||''),detail:String(detail||''),rows:rows==null?'':String(rows)};
@@ -608,9 +610,9 @@ async function loadSourcesOnce({initial=false,silent=false,forceScan=false,backg
     const isLazy=LAZY_BOOK_SOURCES.has(src);
     const pct=22+Math.round((done/total)*58);
     if(!silent){
-      if(isLazy)setLoading(pct,`${FRIENDLY[src]||src} ertelendi`,`Lazy · ${done}/${total} · arka plan/API`);
-      else if(src==='ZMM048'||src==='TANIMLAR')setLoading(pct,`${FRIENDLY[src]||src} yükleniyor…`,`Aşama 2 · rezervasyon · ${done}/${total}`);
-      else if(src==='MB52'||src==='ZMM098')setLoading(pct,`${FRIENDLY[src]||src} yükleniyor…`,`Aşama 3 · stok/teminat · ${done}/${total}`);
+      if(INDEX_DECISION_SOURCES.includes(src))setLoading(pct,`${FRIENDLY[src]||src} indeks/API`,`Grid · IndexedDB book yok · ${done}/${total}`);
+      else if(isLazy)setLoading(pct,`${FRIENDLY[src]||src} ertelendi`,`Lazy · ${done}/${total} · arka plan/API`);
+      else if(src==='TANIMLAR')setLoading(pct,`${FRIENDLY[src]||src} yükleniyor…`,`Aşama 2 · tanımlar · ${done}/${total}`);
       else setLoading(pct,`${FRIENDLY[src]||src} yükleniyor…`,`${done}/${total} kaynak · progressive`);
     }
     // Initial progressive: skip parsing deferred books; keep file meta only.
@@ -649,6 +651,8 @@ async function loadSourcesOnce({initial=false,silent=false,forceScan=false,backg
   if(snap.configError)state.diagnostics.push({level:'warn',text:snap.configError});if(snap.engineRefreshError)state.diagnostics.push({level:'bad',text:'İndeks/Parquet yenileme hatası: '+snap.engineRefreshError});if(snap.dataEngine?.building)state.diagnostics.push({level:'warn',text:'Büyük veri indeksi arka planda güncelleniyor. Mevcut sağlıklı indeks kullanılıyor.'});else if(snap.dataEngine&&!snap.dataEngine.ready&&!snap.dataEngine.usable)state.diagnostics.push({level:'warn',text:'Parquet/index veri motoru henüz usable değil.'});
   for(const d of snap.scanDiagnostics||[])state.diagnostics.push({level:d.level||'warn',text:d.text||''});
   for(const w of state.meta.freshnessWarnings||[])state.diagnostics.push({level:'warn',text:w.message||`${w.source} güncelliği`,source:w.source});
+  if(!silent)setLoading(88,'Karar veri seti (indeks)…','ZMM048/MB52/ZMM098 · /api/grid · IndexedDB yok');
+  await hydrateDecisionFromIndex(usable);
   normalizeData();buildIndexes();validateData();
   state.meta.loadedSnapshotId=Object.values(state.files).every(f=>f.status==='ok')?(snap.sourceAccess?.snapshotId||''):'';
   // Do not invent salt-okunur from BOOT_TIMEOUT/async refresh/pending or usable-index partial books.
@@ -745,10 +749,44 @@ function normalizeKesifModern(){
 }
 function normalizeKesif(){return normalizeKesifModern()}
 
+async function hydrateDecisionFromIndex(usable){
+  // [14]/hız-3: karar seti IndexedDB book değil — usable lokal indeksten /api/grid?view=decision.
+  for(const src of INDEX_DECISION_SOURCES)delete indexDecisionDatasets[src];
+  if(!usable){
+    INDEX_DECISION_SOURCES.forEach(s=>logSourceOp(s,'index-skip','usable indeks yok',0));
+    return;
+  }
+  const results=await Promise.all(INDEX_DECISION_SOURCES.map(async src=>{
+    try{
+      const data=await fetchFastGrid('decision',{source:src});
+      const rows=Array.isArray(data.rows)?data.rows:[];
+      logSourceOp(src,'index',`/api/grid decision · ${data.engine||'SQLITE_INDEX'}`,rows.length);
+      return[src,rows];
+    }catch(e){
+      logSourceOp(src,'index-err',e.message||e,0);
+      state.diagnostics.push({level:'warn',text:`${FRIENDLY[src]||src} indeks/API: ${e.message||e}`,source:src});
+      return[src,null];
+    }
+  }));
+  for(const[src,rows]of results){if(rows)indexDecisionDatasets[src]=rows}
+}
+
 function normalizeData(){
-  state.data.zmm=allRows('ZMM048').map((r,i)=>({raw:r,rowNo:i+1,itemNo:String(pick(r,'itemNo')??r['Nakil rezervasyonu kalem no.']??'').trim(),reservationNo:String(pick(r,'reservationNo')??'').trim(),status:String(pick(r,'status')??'').trim(),approvalStatus:(String(r['Onay Durumu']??'').trim() || (norm(r['Onaylı']??'')==='x'?'Onaylı':'Onaysız')),sourceUY:String(pick(r,'sourceUY')??'').trim(),sourceDY:String(pick(r,'sourceDY')??'').trim(),sourceDYDesc:String(pick(r,'sourceDYDesc')??'').trim(),recvUY:String(pick(r,'recvUY')??'').trim(),recvDY:String(pick(r,'recvDY')??'').trim(),recvUYDesc:String(pick(r,'recvUYDesc')??'').trim(),movementType:String(pick(r,'movementType')??'').trim(),materialCode:String(pick(r,'materialCode')??'').trim(),materialDesc:String(pick(r,'materialDesc')??'').trim(),qty:num(pick(r,'reservationQty')),deliveredQty:num(pick(r,'deliveredQty')),uom:String(pick(r,'uom')??'').trim()})).filter(r=>r.reservationNo&&r.materialCode);
-  state.data.mb52=allRows('MB52').map(r=>{const q=num(pick(r,'unrestricted')),uv=num(pick(r,'unrestrictedValue')),tv=num(pick(r,'totalValue'));return{raw:r,plant:String(pick(r,'plant')??'').trim(),dy:String(pick(r,'storageLoc')??'').trim(),dyDesc:String(pick(r,'storageDesc')??'').trim(),materialCode:String(pick(r,'materialCode')??'').trim(),materialDesc:String(pick(r,'materialDesc')??'').trim(),materialGroup:String(pick(r,'materialGroup')??pickAny(r,['Mal grubu','Mal Grubu','Malzeme grubu','Malzeme Grubu'])??'').trim(),materialGroupDesc:String(pick(r,'materialGroupDesc')??pickAny(r,['Mal grubu tanımı','Mal Grubu Tanımı','Malzeme grubu tanımı','Malzeme Grubu Tanımı'])??'').trim(),uom:String(pick(r,'uom')??'').trim(),qty:q,unrestrictedValue:uv,totalValue:tv,valuationType:String(pick(r,'valuationType')??'').trim(),depotType:String(pick(r,'depotType')??'').trim(),currency:String(pick(r,'currency')??'').trim(),unitPrice:q>0&&uv>0?uv/q:(q>0&&tv>0?tv/q:0)}}).filter(r=>r.materialCode&&r.plant&&r.dy);
-  state.data.z98=allRows('ZMM098').map(r=>{const openAvailable=pickAny(r,['Rez.Yapılabilir Tutar (Açık Rez.Dahil)']);const fallbackAvailable=pick(r,'z98Available');return{raw:r,uy:String(pick(r,'plant')??'').trim(),dy:String(pick(r,'storageLoc')??'').trim(),dyDesc:String(pick(r,'storageDesc')??'').trim(),main:num(pick(r,'guaranteeMain')),cash:num(pick(r,'guaranteeCash')),manual:num(pick(r,'guaranteeManual')),stockValue:num(pick(r,'z98StockValue')),available:num(String(openAvailable??'').trim()!==''?openAvailable:fallbackAvailable),availableSource:String(openAvailable??'').trim()!==''?'OPEN_RESERVATIONS_INCLUDED':'FALLBACK'}}).filter(r=>r.uy&&r.dy);
+  if(Array.isArray(indexDecisionDatasets.ZMM048)){
+    state.data.zmm=indexDecisionDatasets.ZMM048.filter(r=>r.reservationNo&&r.materialCode).map((r,i)=>({...r,rowNo:r.rowNo||i+1,qty:num(r.qty),deliveredQty:num(r.deliveredQty)}));
+  }else{
+    state.data.zmm=allRows('ZMM048').map((r,i)=>({raw:r,rowNo:i+1,itemNo:String(pick(r,'itemNo')??r['Nakil rezervasyonu kalem no.']??'').trim(),reservationNo:String(pick(r,'reservationNo')??'').trim(),status:String(pick(r,'status')??'').trim(),approvalStatus:(String(r['Onay Durumu']??'').trim() || (norm(r['Onaylı']??'')==='x'?'Onaylı':'Onaysız')),sourceUY:String(pick(r,'sourceUY')??'').trim(),sourceDY:String(pick(r,'sourceDY')??'').trim(),sourceDYDesc:String(pick(r,'sourceDYDesc')??'').trim(),recvUY:String(pick(r,'recvUY')??'').trim(),recvDY:String(pick(r,'recvDY')??'').trim(),recvUYDesc:String(pick(r,'recvUYDesc')??'').trim(),movementType:String(pick(r,'movementType')??'').trim(),materialCode:String(pick(r,'materialCode')??'').trim(),materialDesc:String(pick(r,'materialDesc')??'').trim(),qty:num(pick(r,'reservationQty')),deliveredQty:num(pick(r,'deliveredQty')),uom:String(pick(r,'uom')??'').trim()})).filter(r=>r.reservationNo&&r.materialCode);
+  }
+  if(Array.isArray(indexDecisionDatasets.MB52)){
+    state.data.mb52=indexDecisionDatasets.MB52.filter(r=>r.materialCode&&r.plant&&r.dy).map(r=>({...r,qty:num(r.qty),unrestrictedValue:num(r.unrestrictedValue),totalValue:num(r.totalValue),unitPrice:num(r.unitPrice)}));
+  }else{
+    state.data.mb52=allRows('MB52').map(r=>{const q=num(pick(r,'unrestricted')),uv=num(pick(r,'unrestrictedValue')),tv=num(pick(r,'totalValue'));return{raw:r,plant:String(pick(r,'plant')??'').trim(),dy:String(pick(r,'storageLoc')??'').trim(),dyDesc:String(pick(r,'storageDesc')??'').trim(),materialCode:String(pick(r,'materialCode')??'').trim(),materialDesc:String(pick(r,'materialDesc')??'').trim(),materialGroup:String(pick(r,'materialGroup')??pickAny(r,['Mal grubu','Mal Grubu','Malzeme grubu','Malzeme Grubu'])??'').trim(),materialGroupDesc:String(pick(r,'materialGroupDesc')??pickAny(r,['Mal grubu tanımı','Mal Grubu Tanımı','Malzeme grubu tanımı','Malzeme Grubu Tanımı'])??'').trim(),uom:String(pick(r,'uom')??'').trim(),qty:q,unrestrictedValue:uv,totalValue:tv,valuationType:String(pick(r,'valuationType')??'').trim(),depotType:String(pick(r,'depotType')??'').trim(),currency:String(pick(r,'currency')??'').trim(),unitPrice:q>0&&uv>0?uv/q:(q>0&&tv>0?tv/q:0)}}).filter(r=>r.materialCode&&r.plant&&r.dy);
+  }
+  if(Array.isArray(indexDecisionDatasets.ZMM098)){
+    state.data.z98=indexDecisionDatasets.ZMM098.filter(r=>r.uy&&r.dy).map(r=>({...r,main:num(r.main),cash:num(r.cash),manual:num(r.manual),stockValue:num(r.stockValue),available:num(r.available),availableSource:r.availableSource||'INDEX'}));
+  }else{
+    state.data.z98=allRows('ZMM098').map(r=>{const openAvailable=pickAny(r,['Rez.Yapılabilir Tutar (Açık Rez.Dahil)']);const fallbackAvailable=pick(r,'z98Available');return{raw:r,uy:String(pick(r,'plant')??'').trim(),dy:String(pick(r,'storageLoc')??'').trim(),dyDesc:String(pick(r,'storageDesc')??'').trim(),main:num(pick(r,'guaranteeMain')),cash:num(pick(r,'guaranteeCash')),manual:num(pick(r,'guaranteeManual')),stockValue:num(pick(r,'z98StockValue')),available:num(String(openAvailable??'').trim()!==''?openAvailable:fallbackAvailable),availableSource:String(openAvailable??'').trim()!==''?'OPEN_RESERVATIONS_INCLUDED':'FALLBACK'}}).filter(r=>r.uy&&r.dy);
+  }
   const depRows=[...sheetToObjects(sheetRows('TANIMLAR','TB_Depo_Kodlari')),...sheetToObjects(sheetRows('TANIMLAR','SITE_DEPOLAR'))];
   state.data.depots=depRows.map(r=>{const uy=String(pick(r,'plant')??r.UY??'').trim(),dy=String(pick(r,'storageLoc')??r.Depo_yeri??r.Depo_Yeri??'').trim(),contractName=String(pick(r,'contractName')??r.Sozlesme_Adi??'').trim(),dyDesc=String(pick(r,'storageDesc')??r.Depo_Yeri_Tanimi??r.Depo_Tanimi??'').trim();let workType=String(pick(r,'workType')??r.Is_Turu??r.Is_Turu_Kodu??'').trim();if(!['T','K','B','L'].includes(workCode(workType))){const inferred=kesifTextCode(contractName)||kesifTextCode(dyDesc)||(/^B\d+$/i.test(dy)?'B':'');if(inferred)workType=workLabel(inferred)}return{raw:r,uy,dy,dyDesc,depotType:String(pick(r,'depotType')??r.Depo_Turu??'').trim(),workType,contractName,companyName:String(pick(r,'companyName')??r.Firma_Adi??'').trim(),active:String(pick(r,'active')??r.Aktif??'').trim()}}).filter(r=>r.uy&&r.dy);
   state.data.projects=sheetToObjects(sheetRows('TANIMLAR','SITE_PROJELER')).map(r=>({projectId:String(pick(r,'projectId')??r.Proje_ID??'').trim(),projectName:String(pick(r,'projectName')??r.Proje_Adi??'').trim(),uy:String(pick(r,'plant')??r.UY??'').trim(),dy:String(pick(r,'storageLoc')??r.Depo_Yeri??'').trim(),workType:String(pick(r,'workType')??r.Is_Turu??'').trim(),active:String(pick(r,'active')??r.Aktif??'').trim()})).filter(r=>r.projectId&&r.dy);
@@ -863,14 +901,16 @@ function buildIndexes(){
 }
 
 function validateData(){
-  if(!state.books.ZMM048)state.diagnostics.push({level:'bad',text:'Rezervasyon verisi yok; rezervasyon sorgulaması kullanılamaz.'});
-  if(!state.books.ZMM098)state.diagnostics.push({level:'bad',text:'Teminat verisi yok; teminat kontrolü kullanılamaz.'});
-  if(!state.books.MB52)state.diagnostics.push({level:'bad',text:'Güncel depo stok verisi yok; teminat ve kaynak üretim yeri fiyat hesapları kullanılamaz.'});
+  const indexOk=src=>Array.isArray(indexDecisionDatasets[src]);
+  const fileOk=src=>state.files[src]&&state.files[src].status==='ok';
+  if(!indexOk('ZMM048')&&!state.books.ZMM048)state.diagnostics.push({level:'bad',text:'Rezervasyon verisi yok; rezervasyon sorgulaması kullanılamaz.'});
+  if(!indexOk('ZMM098')&&!state.books.ZMM098)state.diagnostics.push({level:'bad',text:'Teminat verisi yok; teminat kontrolü kullanılamaz.'});
+  if(!indexOk('MB52')&&!state.books.MB52)state.diagnostics.push({level:'bad',text:'Güncel depo stok verisi yok; teminat ve kaynak üretim yeri fiyat hesapları kullanılamaz.'});
   if(!state.books.TANIMLAR)state.diagnostics.push({level:'bad',text:'Tanım verisi yok; depo, sözleşme, firma ve proje bilgileri kullanılamaz.'});
-  if(!state.books.KESIFLER)state.diagnostics.push({level:'bad',text:'Keşif verisi yok; keşif kontrolü kullanılamaz.'});
+  if(!state.books.KESIFLER&&!fileOk('KESIFLER'))state.diagnostics.push({level:'bad',text:'Keşif verisi yok; keşif kontrolü kullanılamaz.'});
   if(!state.files.MB51||state.files.MB51.status==='missing')state.diagnostics.push({level:'warn',text:'Stok hareketleri kaynağı bulunamadı. Karar ekranı çalışır; ilerideki raporlama fonksiyonları kullanılamaz.'});
-  if(state.data.zmm?.length===0&&state.books.ZMM048)state.diagnostics.push({level:'bad',text:'ZMM048 içinde rezervasyon + malzeme satırı algılanamadı.'});
-  if(state.data.mb52?.length===0&&state.books.MB52)state.diagnostics.push({level:'bad',text:'MB52 içinde kullanılabilir stok satırı algılanamadı.'});
+  if(state.data.zmm?.length===0&&(indexOk('ZMM048')||state.books.ZMM048))state.diagnostics.push({level:'bad',text:'ZMM048 içinde rezervasyon + malzeme satırı algılanamadı.'});
+  if(state.data.mb52?.length===0&&(indexOk('MB52')||state.books.MB52))state.diagnostics.push({level:'bad',text:'MB52 içinde kullanılabilir stok satırı algılanamadı.'});
 }
 
 function depotInfo(uy,dy){return state.ix.depots.get(key(uy,dy))||{uy,dy,dyDesc:'',depotType:'',workType:'',contractName:'',companyName:''}}

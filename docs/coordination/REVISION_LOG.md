@@ -1,5 +1,15 @@
 # Revizyon günlüğü
 
+## HIZ-003 — 2026-11-28 — Book → grid/API (ZMM048/MB52/ZMM098)
+
+- Kullanıcı isteği: hız paketi adım 3 / [14]; IndexedDB book kaldır; indeks+`/api/grid`.
+- Önceki: açılışta ZMM048/MB52/ZMM098 `/api/book` + IndexedDB; grid yalnız stok/teminat/keşif.
+- Yeni: bu üç kaynak lazy book; karar seti `view=decision`; rezervasyon `view=reservations`; `/api/book` deferred.
+- Dosyalar: `indexed_engine.py`, `server.py`, `app.js`, `test_book_grid_api.py`, `test_boot_handoff.py`, Aktif `talep-ce0206fea6b49158`.
+- Test: `python3 -m unittest discover -s talep_work/tests` → 88 OK (sentetik indeks).
+- Kilitler: ortak yazılabilir SQLite yok; sunucu yok. TANIMLAR book kaldı; zmm048 indeks kalem no taşımıyor.
+- PR #1 branch: `cursor/central-source-incremental-7260`.
+
 ## DOC-001 — 2026-11-28 — ortak bağlamın depoya eklenmesi
 
 - Kullanıcı isteği: ChatGPT ve Cursor'un revize edilen kısımları ortak dosyalardan anlayabilmesi.

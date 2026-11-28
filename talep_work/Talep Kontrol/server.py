@@ -4523,6 +4523,10 @@ def _paged(items,page,page_size):
     total=len(items);page_size=max(25,min(500,int(page_size or 100)));pages=max(1,(total+page_size-1)//page_size);page=max(1,min(int(page or 1),pages));start=(page-1)*page_size
     return items[start:start+page_size],total,page,pages,page_size
 
+# Hız paketi adım 3 / [14]: ZMM048/MB52/ZMM098 IndexedDB book yok — indeks + /api/grid.
+BOOK_DEFERRED_SOURCES=frozenset({'KESIFLER','ZMM048','MB52','ZMM098','MB51'})
+INDEX_DECISION_SOURCES=frozenset({'ZMM048','MB52','ZMM098'})
+
 def _grid_snapshot(view,query):
     q=_norm_search(query.get('q',''));page=int(query.get('page',1) or 1);size=int(query.get('pageSize',100) or 100)
     cols=json.loads(query.get('columnFilters') or '{}');sort_by=query.get('sortBy','');sort_dir=query.get('sortDir','asc')
@@ -4532,6 +4536,12 @@ def _grid_snapshot(view,query):
         if view=='guarantee':return indexed_engine.grid_guarantee(_active_index_db(),rawq,page,size,cols,sort_by,sort_dir)
         if view=='stocks':return indexed_engine.grid_stocks(_active_index_db(),rawq,page,size,str(query.get('scope') or 'mb51_group'),cols,sort_by,sort_dir)
         if view=='kesif':return indexed_engine.grid_kesif(_active_index_db(),rawq,page,size,str(query.get('type') or 'T'),str(query.get('status') or ''),str(query.get('depot') or ''),cols,sort_by,sort_dir)
+        if view=='reservations':return indexed_engine.grid_reservations(_active_index_db(),rawq,page,size,cols,sort_by,sort_dir)
+        if view=='decision':
+            src=str(query.get('source') or '').upper().strip()
+            if src not in INDEX_DECISION_SOURCES:
+                raise ValueError('decision view source ZMM048/MB52/ZMM098 olmalı')
+            return indexed_engine.decision_dataset(_active_index_db(),src)
     if cols or sort_by:
         raise ValueError('Tüm veri üzerinde sütun filtresi için SQLite indeksi hazır olmalı; indeks oluşturulmadan eksik filtre uygulanmaz.')
     if view=='movements':
@@ -5080,9 +5090,10 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 q=urllib.parse.parse_qs(parsed.query);src=str((q.get('source') or [''])[0]).upper()
                 if src not in SOURCE_NAMES:return self._send_json({'ok':False,'error':'Geçersiz kaynak'},400)
-                # Keşif dosyaları çok büyük. Karar ekranı bunları ihtiyaca göre
-                # /api/kesif-context üzerinden alır; tarayıcıya 60+ MB JSON gönderilmez.
-                if src=='KESIFLER':return self._send_json({'ok':True,'source':src,'book':{},'fingerprint':_source_fingerprint(src),'deferred':True})
+                # [14]/hız-3: ZMM048/MB52/ZMM098 IndexedDB book kaldırıldı — indeks+/api/grid.
+                # Keşif/MB51 zaten lazy; tarayıcıya büyük JSON book gönderilmez.
+                if src in BOOK_DEFERRED_SOURCES:
+                    return self._send_json({'ok':True,'source':src,'book':{},'fingerprint':_source_fingerprint(src),'deferred':True,'via':'index_grid'})
                 return self._send_json({'ok':True,'source':src,'book':_source_book_fast(src),'fingerprint':_source_fingerprint(src)})
             except Exception as exc:return self._send_json({'ok':False,'error':str(exc)},500)
         if route == '/api/commitment-context':
