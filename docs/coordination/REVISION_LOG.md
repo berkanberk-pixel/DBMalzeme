@@ -1,5 +1,13 @@
 # Revizyon günlüğü
 
+## COORD-002 — 2026-11-28 — bağlı hesaplarla araştırma başlangıcı
+
+- Kullanıcı Cursor girişini tamamladı; Cursor ve Codex CLI hesap durumları bağlı olarak doğrulandı.
+- İlk denemede çalışma klasörü güven kaydı eksikti. Cursor plan moduna `--trust` eklendi; komut onaylarını atlayan `--force`/`--yolo` eklenmedi.
+- Cursor proje veri alanı `CURSOR_DATA_DIR` ile özel yerel alana ayrıldı; global `.cursor/projects` yazma iznine bağımlılık kaldırıldı.
+- Başarısız başlangıçlar geçmişte korundu; ayrı, yetkilendirilmiş araştırma görevi başlatıldı. Otomatik sınırsız tekrar yoktur.
+- Uygulama geliştirmesi hâlâ kullanıcı plan onayını bekler. Araştırmanın başlaması, dört turluk tartışmanın tamamlandığı anlamına gelmez.
+
 ## COORD-001 — 2026-11-28 — araştırma koordinasyon servisi
 
 - Kullanıcı, yerel Cursor CLI ve mevcut hesabıyla bağlantıyı seçti; koordinasyon servisini kurmayı yetkilendirdi.

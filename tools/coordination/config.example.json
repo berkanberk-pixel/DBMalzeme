@@ -2,6 +2,7 @@
   "repo": "C:/PATH/DBMalzeme",
   "state_dir": "C:/PATH/coordination/state",
   "cursor_config_dir": "C:/PATH/coordination/state/cursor",
+  "cursor_data_dir": "C:/PATH/coordination/cursor-data",
   "cursor_node": "C:/PATH/cursor-cli/node.exe",
   "cursor_index": "C:/PATH/cursor-cli/index.js",
   "codex": "C:/PATH/codex.exe",

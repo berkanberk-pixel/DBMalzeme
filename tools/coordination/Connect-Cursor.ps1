@@ -2,6 +2,7 @@ param([Parameter(Mandatory=$true)][string]$Config)
 $ErrorActionPreference='Stop'
 $settings=Get-Content -LiteralPath $Config -Raw | ConvertFrom-Json
 $env:CURSOR_CONFIG_DIR=$settings.cursor_config_dir
+if ($settings.cursor_data_dir) { $env:CURSOR_DATA_DIR=$settings.cursor_data_dir }
 Remove-Item Env:NO_OPEN_BROWSER -ErrorAction SilentlyContinue
 Write-Host 'Cursor terminal ajani icin hesap girisi aciliyor.'
 Write-Host 'Normal tarayicinizda hesabinizi secin ve CLI erisimini onaylayin.'

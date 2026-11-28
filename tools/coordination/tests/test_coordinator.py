@@ -162,7 +162,7 @@ class StoreTests(unittest.TestCase):
         script=self.root/'fake_agent.py'
         script.write_text('import time\nprint("started",flush=True)\ntime.sleep(30)\n',encoding='utf-8')
         config=dict(repo=str(self.root),cursor_node=sys.executable,cursor_index=str(script),
-                    cursor_config_dir=str(self.root/'cursor'),timeout_seconds=10)
+                    cursor_config_dir=str(self.root/'cursor'),state_dir=str(self.root),timeout_seconds=10)
         started=time.monotonic()
         with self.assertRaisesRegex(RuntimeError,'iptal'):
             c.run_agent(config,'cursor','test',self.root/'result.txt',lambda:time.monotonic()-started>.4)

@@ -213,7 +213,7 @@ def build_prompt(store, job, context=''):
 def agent_command(config, role, output):
     repo = str(Path(config['repo']).resolve())
     if role == 'cursor':
-        return [config['cursor_node'], config['cursor_index'], '--print', '--mode', 'plan',
+        return [config['cursor_node'], config['cursor_index'], '--print', '--trust', '--mode', 'plan',
                 '--workspace', repo, '--output-format', 'text']
     return [config['codex'], '--search', 'exec', '--ignore-user-config', '--ephemeral', '--sandbox', 'read-only',
             '--skip-git-repo-check', '--color', 'never', '-C', repo,
@@ -296,6 +296,7 @@ def run_agent(config, role, prompt, output, cancelled):
     command = agent_command(config, role, output)
     env = os.environ.copy()
     env['CURSOR_CONFIG_DIR'] = config['cursor_config_dir']
+    env['CURSOR_DATA_DIR'] = config.get('cursor_data_dir',str(Path(config['state_dir'])/'cursor-data'))
     env['NO_OPEN_BROWSER'] = '1'
     env['PYTHONIOENCODING'] = 'utf-8'
     options = {'creationflags': subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == 'nt' else {'start_new_session': True}
@@ -454,6 +455,7 @@ class Connections:
     def env(self):
         env=os.environ.copy()
         env['CURSOR_CONFIG_DIR']=self.config['cursor_config_dir']
+        env['CURSOR_DATA_DIR']=self.config.get('cursor_data_dir',str(Path(self.config['state_dir'])/'cursor-data'))
         env['NO_OPEN_BROWSER']='1'
         return env
 

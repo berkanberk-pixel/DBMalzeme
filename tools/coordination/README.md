@@ -18,6 +18,7 @@ Sonuç `READY_FOR_USER_REVIEW` olur. Panelde “Planı onayla” yalnız onayı 
 Bir ajanın yanıt vermiş olması önerinin iki tarafça onaylandığı anlamına gelmez; anlaşmazlıklar saklanır.
 
 Cursor `--mode plan`, Codex `--sandbox read-only` ile çalışır. Ajanlar kaynak değiştirme, paket kurma, commit/push/merge/deploy yapmama talimatı alır.
+Cursor `--trust` yalnız yapılandırılmış proje/araştırma dizinlerinin normal güven kaydını oluşturur; `--force`, `--yolo` veya genel komut onayı atlama kullanılmaz.
 CLI'nin kendi oturum/cache dosyaları ve servisin yerel tartışma kayıtları yazılır. Bu salt-okunur araştırma, CLI sandbox/politikalarının sunduğu sınırlar içinde yürür.
 Güncel bilgi için web araçları ajan politikasına bağlıdır; web erişimi engelliyse sonuçta doğrulanamadığı belirtilmelidir.
 Codex'e yerel CLI'nin `--search` seçeneğiyle web araştırması açılır. Yerel dosya okuma araçları yönetilen politikada engellenebildiği için
@@ -66,6 +67,7 @@ Bilgisayar/app kapanınca bu servis bulutta devam etmez. Windows açılışına 
 - Oturum/hata/zaman aşımı durumunda otomatik yeniden deneme yapılmaz. Servis çöküp açılırsa yarım iş `INTERRUPTED` kalır.
 - Önceki bütün yanıtlar sıradaki ajana iletilir. Uzun yanıtlar sessizce kırpılmaz; 24000 karakteri aşarsa görev hatayla durur.
 - Yerel SQLite, `service.token`, CLI oturumları ve `discussions/<id>/` kayıtları **state_dir** altındadır; depoya eklenmez.
+- Cursor proje geçmişi/güven işaretleri **cursor_data_dir** altındadır (belirtilmezse `state_dir/cursor-data`); global Cursor veri alanına yazılmaz. Windows'ta kısa bir yerel yol tercih edin.
 - Her tartışma için okunabilir `discussion.md` ve tur çıktıları üretilir. Yayınlanacak özet, sır/kişisel yol/iş verisi açısından gözden geçirilmelidir.
 - API yerel bearer anahtarı ister, yabancı Origin/Host isteklerini reddeder. Sağlık yanıtı yalnız servis durumunu gösterir.
 - Otomatik GitHub paylaşımı yapılmaz; yerel araştırma, kullanıcı incelemesinden sonra seçilen özet/plan olarak depoya taşınabilir.
