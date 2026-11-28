@@ -17,7 +17,7 @@ mevcut hesapları kullanan yeni terminal ajan oturumları başlatır. İnsan ona
 Sonuç `READY_FOR_USER_REVIEW` olur. Panelde “Planı onayla” yalnız onayı kaydeder; hiçbir kod/kurulum/yayın işini tetiklemez.
 Bir ajanın yanıt vermiş olması önerinin iki tarafça onaylandığı anlamına gelmez; anlaşmazlıklar saklanır.
 
-Cursor `--mode plan`, Codex `--sandbox read-only` ile çalışır. Ajanlar kaynak değiştirme, paket kurma, commit/push/merge/deploy yapmama talimatı alır.
+Cursor `--mode ask`, Codex `--sandbox read-only` ile çalışır. Ask modu dosya değiştirmeden metin yanıtı üretir; önerilen uygulama planı bu metnin içinde sunulur. Ajanlar kaynak değiştirme, paket kurma, commit/push/merge/deploy yapmama talimatı alır.
 Cursor `--trust` yalnız yapılandırılmış proje/araştırma dizinlerinin normal güven kaydını oluşturur; `--force`, `--yolo` veya genel komut onayı atlama kullanılmaz.
 CLI'nin kendi oturum/cache dosyaları ve servisin yerel tartışma kayıtları yazılır. Bu salt-okunur araştırma, CLI sandbox/politikalarının sunduğu sınırlar içinde yürür.
 Güncel bilgi için web araçları ajan politikasına bağlıdır; web erişimi engelliyse sonuçta doğrulanamadığı belirtilmelidir.

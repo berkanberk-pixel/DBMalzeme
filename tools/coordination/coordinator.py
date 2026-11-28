@@ -213,7 +213,7 @@ def build_prompt(store, job, context=''):
 def agent_command(config, role, output):
     repo = str(Path(config['repo']).resolve())
     if role == 'cursor':
-        return [config['cursor_node'], config['cursor_index'], '--print', '--trust', '--mode', 'plan',
+        return [config['cursor_node'], config['cursor_index'], '--print', '--trust', '--mode', 'ask',
                 '--workspace', repo, '--output-format', 'text']
     return [config['codex'], '--search', 'exec', '--ignore-user-config', '--ephemeral', '--sandbox', 'read-only',
             '--skip-git-repo-check', '--color', 'never', '-C', repo,

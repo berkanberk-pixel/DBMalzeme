@@ -1,5 +1,12 @@
 # Revizyon günlüğü
 
+## COORD-003 — 2026-11-28 — araştırma yanıtının metin olarak aktarılması
+
+- Cursor'un ilk canlı araştırması `CreatePlan` belgesi üretti ve terminale son metin yazmadan başarıyla bitti. Boş stdout tamamlanmış ortak tartışma sayılmadı.
+- Sonraki Cursor turları salt-okunur `--mode ask` ile metin önerisi üretir; araştırma/plan kapsamı ve kullanıcı onay koşulu korunur.
+- İlk planın özgün içeriği, aynı oturumun başarıyla biten `CreatePlan` kaydından alındı; kaynak kaydı ve hash ile koordinasyon geçmişine işlendi. Cursor'un üretmediği yanıt eklenmedi.
+- Codex bu öneriyi bağımsız inceleyecek; URL adayları ve doğrulanmamış kütüphane iddiaları ortak karar sayılmaz.
+
 ## COORD-002 — 2026-11-28 — bağlı hesaplarla araştırma başlangıcı
 
 - Kullanıcı Cursor girişini tamamladı; Cursor ve Codex CLI hesap durumları bağlı olarak doğrulandı.

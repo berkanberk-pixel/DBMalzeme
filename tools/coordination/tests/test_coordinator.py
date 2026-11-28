@@ -139,7 +139,7 @@ class StoreTests(unittest.TestCase):
         config=dict(repo=str(self.root),cursor_node='node',cursor_index='agent.js',codex='codex')
         cursor=c.agent_command(config,'cursor',self.root/'out')
         codex=c.agent_command(config,'codex',self.root/'out')
-        self.assertEqual(cursor[cursor.index('--mode')+1],'plan')
+        self.assertEqual(cursor[cursor.index('--mode')+1],'ask')
         self.assertEqual(codex[codex.index('--sandbox')+1],'read-only')
         self.assertNotIn('--force',cursor)
         self.assertNotIn('--dangerously-bypass-approvals-and-sandbox',codex)
