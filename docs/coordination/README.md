@@ -3,6 +3,10 @@
 Son kayıt: 28 Kasım 2026. Bu belgeler kullanıcının “revize ettiğimiz kısımları diğer araçlar da anlayabilsin” talebiyle eklenmiştir.
 Ortak yazılı bağlamdır; uygulamalar arasında otomatik sohbet belleği paylaşımı iddiası değildir. İlgili dalın güncel dosyaları okunmalıdır.
 
+Sonraki kullanıcı kararı: İki ajan önce araştırıp yöntem/kütüphane seçeneklerini tartışır; kullanıcı ortak planı inceler.
+Uygulama geliştirmesi plan onayından sonra başlar. Bu akış için [yerel koordinasyon servisi](../../tools/coordination/README.md) eklenmiştir.
+Servis ayrı CLI oturumlarının yanıtlarını aktarır; açık sohbetlerin belleğini birleştirmez.
+
 ## Okuma sırası
 
 1. [Kullanıcı kararları ve hedef](USER_DECISIONS.md)
@@ -14,6 +18,10 @@ Ortak yazılı bağlamdır; uygulamalar arasında otomatik sohbet belleği payla
 Kök [AGENTS.md](../../AGENTS.md) ortak giriş dosyasıdır. Cursor için ayrıca `.cursor/rules/talep-kontrol-context.mdc` eklenmiştir.
 Kural dosyası biçiminin kaynağı: [Cursor resmi kurallar dokümanı](https://cursor.com/docs/rules).
 
+## Yeni Cursor revizyonlarının durumu
+
+Servis kurulurken dal `795adcf5597825e64125836d49afd83541488baa` commit'ine ilerledi. HIZ-004 kaydı F-001/F-002 için düzeltme, F-003 için ZMM098/MB52 satır deltası bildiriyor; HIZ-005 merkezi seed hızlandırmasını ekliyor. Bu kayıtlar ve güncel backlog korunur. Önceki 67 testlik rapor bu yeni kodun bağımsız kabul testi değildir; yeni araştırma güncel HEAD'i esas almalıdır.
+
 ## İncelenen sürüm
 
 - Depo: `berkanberk-pixel/DBMalzeme`
@@ -22,7 +30,7 @@ Kural dosyası biçiminin kaynağı: [Cursor resmi kurallar dokümanı](https://
 - Config: `1.0.4` / `20261127-v1.0.4-async-force`; release `talep-3548f277c3dbf2a0`
 - Daha önce paylaşılan FIX12/FIX13 ZIP'leri ayrı teslimlerdir; bu daldaki kodla eşit oldukları varsayılmamalıdır.
 
-## Mevcut teknik durum
+## İnceleme anındaki teknik durum (8618f524)
 
 Merkezi kaynak kopyası `0-Database/KAYNAK_VERILERI`, merkezi indeks snapshot'ı `0-Database/KAYNAK_INDEKS`,
 yerel kullanıcı indeksi ve `0-Database/KAYIT/STAGING → COMMITTED` karar paketleri kodda vardır.

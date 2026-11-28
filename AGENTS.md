@@ -18,3 +18,8 @@ Güncel kullanıcı talimatları bu tarihsel notlardan önceliklidir. Bu dosya y
 - Gerçek kullanıcı, ağ adresi, kaynak iş verisi veya yerel dosya yollarını herkese açık test kanıtına taşımayın; sentetik örnek kullanın.
 
 2026-11-28 dokümantasyon revizyonu uygulama kodunu düzeltmez; açık bulgular açık kalır.
+
+Sonraki kullanıcı kararı (2026-11-28): Cursor ve Codex önce bu sınırlar içinde araştırma ve karşılıklı eleştiri yapar.
+Güncel kütüphane/metot seçenekleri kanıtlarıyla karşılaştırılır; ortak öneri ve kalan görüş ayrılıkları kullanıcıya sunulur.
+Uygulama geliştirmesi, kullanıcı bu planı açıkça onayladıktan sonra başlar. Koordinasyon servisinin kurulumu ayrıca yetkilendirilmiştir.
+Yerel araştırma servisi ve kullanım: [tools/coordination/README.md](tools/coordination/README.md).

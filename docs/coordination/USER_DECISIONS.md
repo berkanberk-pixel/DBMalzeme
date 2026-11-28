@@ -1,5 +1,12 @@
 # Kullanıcının teyit ettiği hedefler
 
+## Son çalışma kararı — araştırma, ortak değerlendirme, sonra geliştirme
+
+28 Kasım 2026: Kullanıcı önce Cursor ve Codex'in belirlenen sınırlar içinde fikir alışverişi yapmasını,
+en verimli yöntemi araştırıp tartışmasını istedi. Güncel kütüphaneler ve alternatif metotlar karşılaştırılacak.
+Sonuç kullanıcıyla birlikte değerlendirilecek; **plan onaylandıktan sonra** uygulama geliştirmesine başlanacak.
+Bu aşamada servis kurulumu ve salt-okunur araştırma yetkilidir. Ortak görüş oluşmayan noktalar gizlenmemelidir.
+
 Kaynak: “Veri Arşivleme 2” devamındaki bu geliştirme konuşması ve sonraki doğrudan kullanıcı düzeltmeleri.
 Bu liste talep kaydıdır. Tamamlanma durumu [inceleme matrisindedir](reviews/2026-11-28-8618f524.md).
 Yeni doğrudan kullanıcı kararları bu kaydı güncelleyebilir; kodun mevcut olması tek başına yeni karar kanıtı değildir.

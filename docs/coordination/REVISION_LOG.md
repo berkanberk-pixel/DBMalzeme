@@ -1,5 +1,18 @@
 # Revizyon günlüğü
 
+## COORD-001 — 2026-11-28 — araştırma koordinasyon servisi
+
+- Kullanıcı, yerel Cursor CLI ve mevcut hesabıyla bağlantıyı seçti; koordinasyon servisini kurmayı yetkilendirdi.
+- Son kapsam: önce araştırma ve karşılıklı eleştiri; ortak plan kullanıcıyla incelenip onaylanmadan Talep Kontrol uygulama geliştirmesi başlamaz.
+- `tools/coordination/`: yerel HTTP paneli, kalıcı kuyruk, Cursor → Codex → Cursor → Codex dört turluk aktarım, iptal/duraklatma, günlük çağrı ve süre sınırı.
+- Kaynak bağlamı ilk turda sabitlenir. CLI dosya okuma engelliyse ajanlara bu açıkça işaretlenmiş bağlam aktarılır. Güncel metot önerileri için resmi kaynak istenir.
+- Cursor plan modu ve Codex read-only sandbox; plan onayı yalnız kaydedilir, geliştirme süreci başlatılmaz.
+- Kod/HTTP testleri: 21 test geçti; gerçek süreç iptali, eşzamanlı kuyruk, crash sonrası tekrar engeli, bağlantı olmadan görev başlatmama ve onay sınırı dahil. Python AST ve panel JavaScript syntax geçti.
+- İzole tarayıcı panel testi: giriş anahtarının URL'den kaldırılması, görev oluşturma/iptal, 390px taşma ve JavaScript hata kontrolü geçti.
+- Codex mevcut hesap bağlantısı çalıştı. Cursor CLI indirildi; tam canlı dört turluk tartışma, iki hesabın bağlantısı tamamlanmadan doğrulanmış sayılmaz.
+- Sabit kaynak paketiyle Codex statik servis incelemesi yapıldı; süreç ağacı kapatma, tutarlı okuma, atomik dışa aktarım ve istek sıralaması iyileştirildi.
+- Talep Kontrol kaynakları ve dağıtım ikilileri değiştirilmedi. Bu servis revizyonu uygulama bulgularını kapatmaz; Cursor'un HIZ revizyonlarındaki kayıtlar korunur ve ayrı doğrulanır. Kullanıcı parolası, CLI oturumu ve yerel servis anahtarı depoya eklenmez.
+
 ## HIZ-005 — 2026-11-28 — Merkez salt-okunur snapshot seed (fast boot)
 
 - Kullanıcı isteği: hız paketi adım 5 (final); `0-Database/KAYNAK_INDEKS` → yerel Index hızlı boot.

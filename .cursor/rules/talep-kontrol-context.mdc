@@ -9,3 +9,5 @@ Kullanıcı kararları `USER_DECISIONS.md`, açık bulgular `REVISION_BACKLOG.md
 Kodda bulunmayı, test geçmesini ve kullanıcı tarafından istenmesini ayrı değerlendirin.
 Tamamen yerel WPF hedefini WebView2 ile eşdeğer saymayın; keşif iş kurallarını sessizce değiştirmeyin.
 İşi bitirince ilgili istek/bulgu kimliği, değişiklik ve test kanıtıyla ortak günlüğü güncelleyin.
+Son kullanıcı kararı: önce Cursor/Codex araştırması ve karşılıklı eleştiri; ardından kullanıcıyla plan incelemesi.
+Uygulama kodunun geliştirilmesi için bu planın açık kullanıcı onayı beklenir. Koordinasyon servisi kurulumu yetkilidir.
