@@ -313,3 +313,37 @@ def reset_auto_final_done():
 
 def build_auto_final_key(reservation_no: str, control_id: str, material_digest: str) -> str:
     return f"{reservation_no}|{control_id}|{material_digest}"
+
+
+# [11] / hız paketi adım 1 — büyük MB51/MB52 pending taramasında seyrek SHA.
+PENDING_SPARSE_SOURCES = frozenset({'MB51', 'MB52'})
+PENDING_SPARSE_MIN_BYTES = 8 * 1024 * 1024  # 8 MiB
+PENDING_SPARSE_BLOCK = 1024 * 1024  # 1 MiB head/mid/tail
+
+
+def use_pending_sparse_sha(logical: str, total_size: int) -> bool:
+    """Büyük MB51/MB52 için pending taramasında tam hash yerine örneklemeli SHA."""
+    return str(logical or '').upper() in PENDING_SPARSE_SOURCES and int(total_size or 0) >= PENDING_SPARSE_MIN_BYTES
+
+
+def sparse_file_sha256(path: Path, block: int = PENDING_SPARSE_BLOCK) -> str:
+    """Örneklemeli içerik özeti: boyut + baş + orta + son (publish/full SHA değil).
+
+    Ortak yazılabilir SQLite yok; yalnız yerel/aday dosya okuması.
+    """
+    path = Path(path)
+    size = path.stat().st_size
+    h = hashlib.sha256()
+    h.update(b'sparse-v1|')
+    h.update(str(size).encode('ascii'))
+    with path.open('rb') as stream:
+        head = stream.read(block)
+        h.update(head)
+        if size > block * 2:
+            mid = max(0, (size // 2) - (block // 2))
+            stream.seek(mid)
+            h.update(stream.read(block))
+        if size > block:
+            stream.seek(max(0, size - block))
+            h.update(stream.read(block))
+    return h.hexdigest()

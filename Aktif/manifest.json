@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "product": "Talep Kontrol",
-  "release_id": "talep-c8bfce843c30805a",
-  "package": "Paketler/talep-c8bfce843c30805a/TalepKontrol.zip",
-  "sha256": "33737b1293c0e944efd5562f61ecfa3d92e6150e5b39e2170d6083e2b31a843b",
-  "size_bytes": 56296264,
-  "published_utc": "2026-11-28T17:01:37.054852+00:00",
-  "notes": "v1.0.4-mb51-absolute: Tesis hariç MB51 fiili → otomatik kesin (COMMITTED); farkta MB51 kazanır; yetkili+audit"
+  "release_id": "talep-b50be49287f96c01",
+  "package": "Paketler/talep-b50be49287f96c01/TalepKontrol.zip",
+  "sha256": "ab5c1d8f4247ef5b93c87b649104d9394fbde0bfe6dc1bb3e0fca2fc056f6fbc",
+  "size_bytes": 56296930,
+  "published_utc": "2026-11-28T17:52:24.537017+00:00",
+  "notes": "v1.0.4-sparse-sha: pending MB51/MB52 büyük dosyada mtime/size önce + seyrek SHA; tam hash yok"
 }

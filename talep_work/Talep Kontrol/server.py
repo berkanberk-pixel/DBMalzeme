@@ -1718,6 +1718,33 @@ def _source_quick_fingerprint(info):
     return hashlib.sha256(json.dumps(rows, ensure_ascii=False, sort_keys=True).encode('utf-8')).hexdigest()
 
 
+def _source_info_total_size(info):
+    if not info:
+        return 0
+    total = 0
+    for entry in info.get('files') or []:
+        try:
+            total += int(entry.get('size') or 0) or Path(entry.get('path') or '').stat().st_size
+        except OSError:
+            total += int(entry.get('size') or 0)
+    return total or int(info.get('size') or 0)
+
+
+def _source_sparse_content_digest(info):
+    """Pending taraması için örneklemeli içerik özeti (büyük MB51/MB52)."""
+    if not info:
+        return ''
+    rows = []
+    for entry in info.get('files') or []:
+        path = Path(entry.get('path') or '')
+        revision = _source_file_revision(path)
+        digest = revision_runtime.sparse_file_sha256(path)
+        if _source_file_revision(path) != revision:
+            raise OSError(f'Kaynak okunurken değişti: {path.name}')
+        rows.append((str(entry.get('role') or ''), str(entry.get('sheet') or ''), digest))
+    return hashlib.sha256(json.dumps(sorted(rows)).encode('utf-8')).hexdigest()
+
+
 def _pending_source_updates(active_sources,candidates):
     prefs=_json_load(SOURCE_UPDATE_PREF_PATH,{})
     out=[]
@@ -1730,27 +1757,25 @@ def _pending_source_updates(active_sources,candidates):
             cf=[x for x in (ci or {}).get('files') or [] if str(x.get('role') or '').upper()==role]
             ai=_source_info_from_files(source,af,active_origin) if af else None;ci=_source_info_from_files(source,cf,'candidate') if cf else None
         if not ci:continue
-        # Hızlı kapı: boyut/zaman (ve bilinen inputRevision) aynıysa içerik SHA hesaplama.
+        # Hız paketi adım 1 / [11]: mtime/size önce; büyük MB51/MB52'de tam SHA yok.
         try:
             if ai and _source_quick_fingerprint(ai)==_source_quick_fingerprint(ci):
-                known={(f.get('inputPath'), tuple(f.get('inputRevision') or ())): f.get('sha256')
-                       for f in (ai or {}).get('files', [])}
-                # inputPath eşlemesi varsa SHA ile doğrula; yoksa aynı revision = değişmedi.
-                if known:
-                    ad=_source_content_digest(ai);cd=_source_content_digest(ci, known)
-                    if ad==cd:continue
-                else:
-                    continue
-            ad = _source_content_digest(ai)
-            known = {(f.get('inputPath'), tuple(f.get('inputRevision') or ())): f.get('sha256')
-                     for f in (ai or {}).get('files', [])}
-            cd = _source_content_digest(ci, known)
+                continue
+            total = max(_source_info_total_size(ai), _source_info_total_size(ci))
+            if revision_runtime.use_pending_sparse_sha(logical, total):
+                ad = _source_sparse_content_digest(ai)
+                cd = _source_sparse_content_digest(ci)
+            else:
+                ad = _source_content_digest(ai)
+                known = {(f.get('inputPath'), tuple(f.get('inputRevision') or ())): f.get('sha256')
+                         for f in (ai or {}).get('files', [])}
+                cd = _source_content_digest(ci, known)
         except OSError:
             continue
         if ad == cd:
             continue
         old_size=int((ai or {}).get('size') or 0);new_size=int(ci.get('size') or 0)
-        item={'source':logical,'underlyingSource':source,'role':role or '','activeDigest':ad,'candidateDigest':cd,'oldName':(ai or {}).get('name') or '—','newName':ci.get('name') or '—','oldSize':old_size,'newSize':new_size,'oldModified':(ai or {}).get('modifiedIso') or '','newModified':ci.get('modifiedIso') or '','oldFileCount':len((ai or {}).get('files') or []),'newFileCount':len(ci.get('files') or []),'deferred':str((prefs.get(logical) or {}).get('deferredDigest') or '')==cd}
+        item={'source':logical,'underlyingSource':source,'role':role or '','activeDigest':ad,'candidateDigest':cd,'oldName':(ai or {}).get('name') or '—','newName':ci.get('name') or '—','oldSize':old_size,'newSize':new_size,'oldModified':(ai or {}).get('modifiedIso') or '','newModified':ci.get('modifiedIso') or '','oldFileCount':len((ai or {}).get('files') or []),'newFileCount':len(ci.get('files') or []),'deferred':str((prefs.get(logical) or {}).get('deferredDigest') or '')==cd,'digestMode':'sparse' if revision_runtime.use_pending_sparse_sha(logical, total) else 'full'}
         out.append(item)
     return out
 
