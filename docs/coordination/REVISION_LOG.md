@@ -1,5 +1,15 @@
 # Revizyon günlüğü
 
+## HIZ-005 — 2026-11-28 — Merkez salt-okunur snapshot seed (fast boot)
+
+- Kullanıcı isteği: hız paketi adım 5 (final); `0-Database/KAYNAK_INDEKS` → yerel Index hızlı boot.
+- Önceki: snapshot publish/seed vardı ama seed gecikmeliydi; MISSING’te cold rebuild riski.
+- Yeni: `ensure_seeded_once` + `_ensure_central_index_seed`; `/api/files`/`_engine_snapshot` MISSING’te seed; usable seed sonrası cold rebuild yok; Ctrl+Q `seededFromCentral`.
+- Dosyalar: `central_index_snapshot.py`, `server.py`, `indexed_engine.py`, `app.js`, `test_central_index_snapshot.py`, `test_central_seed_fast_boot.py`, `test_boot_handoff.py`, Aktif `talep-f02c99deb4b4f0d0`.
+- Test: `python3 -m unittest discover -s talep_work/tests` → 100 OK.
+- Kilitler: ortak yazılabilir SQLite yok; sunucu yok; yalnız salt-okunur merkez artifact kopyası.
+- PR #1 branch: `cursor/central-source-incremental-7260`.
+
 ## HIZ-004 — 2026-11-28 — Incremental + async forceScan
 
 - Kullanıcı isteği: hız paketi adım 4 / [15]; `source_row_diff` + forceScan arka plan güçlendir.

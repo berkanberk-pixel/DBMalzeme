@@ -317,7 +317,8 @@ def active_build_state(app_dir:Path,sources:Dict[str,Any])->Dict[str,Any]:
         'builtAt':m.get('built_at',''),'indexHash':m.get('index_sha256',''),'manifestHash':b.get('manifest_sha256') or '',
         'parquetFiles':parquet_files,'rulesetVersion':(m.get('ruleset') or {}).get('version',''),
         'rulesetHash':(m.get('ruleset') or {}).get('hash',''),'quality':m.get('quality') or {},
-        'engineVersion':m.get('engine_version',''),'schemaVersion':m.get('schema_version',0),'legacy':bool(b.get('legacy'))
+        'engineVersion':m.get('engine_version',''),'schemaVersion':m.get('schema_version',0),'legacy':bool(b.get('legacy')),
+        'seededFromCentral':bool(b.get('seeded_from_central')),
     }
 
 

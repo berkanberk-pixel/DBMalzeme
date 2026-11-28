@@ -11,6 +11,7 @@
     "central_source_of_truth": "0-Database/KAYNAK_VERILERI",
     "central_index_snapshot": "0-Database/KAYNAK_INDEKS",
     "central_index_read_only": true,
+    "central_index_fast_boot_seed": true,
     "no_shared_writable_sqlite": true,
     "decisions_in_committed_bundles": true,
     "concurrent_clients_ok": true,
@@ -394,5 +395,8 @@
     "discoveryExempt": "Keşif kaydı/yetersizliği hata üretmez; TESİS proje dağılımı zorunluluğu devam eder ve proje keşif kapasitesi muaf satırda kontrol edilmez.",
     "guaranteeExempt": "Muaf malzemenin tutarı teminat etkisine dahil edilmez; manuel kontrolde muaf malzeme için MB52 fiyat eksikliği teminat hatası üretmez.",
     "projectDistributionExempt": false
+  },
+  "performance": {
+    "central_index_fast_boot_seed": true
   }
 }

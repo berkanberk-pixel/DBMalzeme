@@ -428,7 +428,7 @@ function renderDiagTasks(){
     const diag=sa.diagnosis||{};
     meta.textContent=[
       `sourceAccess.current=${sa.current===true?'1':'0'} code=${diag.reasonCode||'—'}`,
-      `engine=${state.meta.dataEngine?.status||'—'}/usable=${state.meta.dataEngine?.usable?'1':'0'}/building=${state.meta.dataEngine?.building?'1':'0'}`,
+      `engine=${state.meta.dataEngine?.status||'—'}/usable=${state.meta.dataEngine?.usable?'1':'0'}/building=${state.meta.dataEngine?.building?'1':'0'}/seeded=${state.meta.dataEngine?.seededFromCentral?'1':'0'}`,
       `release=${state.meta.releaseId||diag.releaseId||'—'} · ${sa.reason||diag.reason||''}`,
       `missing=${(diag.missing||sa.missing||[]).join(',')||'—'}`,
     ].filter(Boolean).join('\n');
@@ -444,7 +444,7 @@ function buildDiagExportText(){
     `zaman=${new Date().toISOString()}`,
     `release=${state.meta.releaseId||diag.releaseId||'—'} version=${state.meta.serviceVersion||'—'}`,
     `sourceAccess current=${sa.current===true} code=${diag.reasonCode||'—'} reason=${sa.reason||''}`,
-    `engine status=${state.meta.dataEngine?.status||'—'} usable=${!!state.meta.dataEngine?.usable} building=${!!state.meta.dataEngine?.building}`,
+    `engine status=${state.meta.dataEngine?.status||'—'} usable=${!!state.meta.dataEngine?.usable} building=${!!state.meta.dataEngine?.building} seededFromCentral=${state.meta.dataEngine?.seededFromCentral?'1':'0'}`,
     `missing=${(diag.missing||[]).join(',')||'—'}`,
     '',
     '## Görevler',

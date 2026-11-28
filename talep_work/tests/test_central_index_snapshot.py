@@ -115,6 +115,44 @@ class CentralIndexSnapshotTests(unittest.TestCase):
         self.assertFalse(cis.enabled({'enforce_shared_record_root': True, 'central_index_snapshot': False}))
         self.assertFalse(cis.enabled({'enforce_shared_record_root': False}))
 
+    def test_ensure_seeded_once_fast_boot_and_idempotent(self):
+        _make_local_build(self.app, built_at='2026-11-28T12:00:00')
+        self.assertTrue(cis.publish_central_snapshot(self.app, self.shared).get('published'))
+
+        cis._SEED_ONCE_DONE.clear()
+        os.environ['TALEP_INDEX_ROOT'] = str(self.root / 'IndexFast')
+        app_fast = self.root / 'app_fast'
+        app_fast.mkdir()
+        self.assertTrue(cis.local_needs_seed(app_fast))
+
+        first = cis.ensure_seeded_once(app_fast, self.shared)
+        self.assertTrue(first.get('seeded'), first)
+        self.assertTrue(first.get('fast_boot'))
+        self.assertFalse(first.get('writable_shared_sqlite'))
+
+        # Second call must not re-copy; same result cached.
+        second = cis.ensure_seeded_once(app_fast, self.shared)
+        self.assertEqual(second.get('build_id'), first.get('build_id'))
+        self.assertTrue(second.get('seeded') or second.get('reason') == 'local-already-usable' or
+                        second.get('build_id') == first.get('build_id'))
+
+        local = cis.local_active_meta(app_fast)
+        self.assertTrue(local.get('build_id'))
+        pointer = ie._active_pointer(app_fast)
+        data = json.loads(pointer.read_text(encoding='utf-8'))
+        self.assertTrue(data.get('seeded_from_central'))
+
+    def test_publish_marks_read_only_central_artifact(self):
+        _make_local_build(self.app)
+        pub = cis.publish_central_snapshot(self.app, self.shared)
+        self.assertTrue(pub.get('published'), pub)
+        meta = cis.read_active_meta(self.index_root)
+        self.assertTrue(meta.get('read_only'))
+        self.assertFalse(meta.get('writable_shared_sqlite'))
+        # Central build is files only — no live shared connection expected.
+        db = self.index_root / 'builds' / meta['build_id'] / 'talep_index.sqlite'
+        self.assertTrue(db.is_file())
+
 
 if __name__ == '__main__':
     unittest.main()

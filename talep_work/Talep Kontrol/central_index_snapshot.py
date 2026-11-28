@@ -22,6 +22,8 @@ from typing import Any, Dict, Optional
 SCHEMA = 1
 REL_DIR = 'KAYNAK_INDEKS'
 _PUBLISH_LOCK = threading.Lock()
+_SEED_ONCE_LOCK = threading.Lock()
+_SEED_ONCE_DONE: Dict[str, Dict[str, Any]] = {}
 
 
 def _sha256(path: Path) -> str:
@@ -113,12 +115,18 @@ def _copy_tree_files(src: Path, dest: Path) -> None:
         shutil.copy2(path, target)
 
 
+def local_needs_seed(app_dir: Path) -> bool:
+    """True when local ACTIVE is missing, corrupt, or otherwise unusable for boot."""
+    return not bool(local_active_meta(app_dir))
+
+
 def seed_local_from_central(app_dir: Path, shared_record_root: Path, *,
                             rel: str = REL_DIR) -> Dict[str, Any]:
     """Copy central read-only snapshot into local Index when local ACTIVE missing/unusable.
 
     Never opens a writable shared SQLite; copies files then points local ACTIVE at them.
     Concurrent readers OK. If local is fresher or equal, no-op.
+    Fast boot path: prefer this over cold UNC full rebuild when a published snapshot exists.
     """
     import indexed_engine as ie
 
@@ -188,7 +196,41 @@ def seed_local_from_central(app_dir: Path, shared_record_root: Path, *,
 
     pointer_path = ie._active_pointer(Path(app_dir))
     _write_json_atomic(pointer_path, pointer)
-    return {'seeded': True, 'build_id': build_id, 'source_digest': meta['source_digest'], 'from': str(src)}
+    return {
+        'seeded': True,
+        'build_id': build_id,
+        'source_digest': meta['source_digest'],
+        'from': str(src),
+        'fast_boot': True,
+        'writable_shared_sqlite': False,
+    }
+
+
+def ensure_seeded_once(app_dir: Path, shared_record_root: Path, *,
+                      rel: str = REL_DIR, force: bool = False) -> Dict[str, Any]:
+    """Idempotent seed for first paint / MISSING local Index.
+
+    Concurrent callers share one attempt per (app_dir, shared_root, rel).
+    Does not open shared SQLite for write — only copies published artifacts.
+    """
+    key = '|'.join([
+        str(Path(app_dir).resolve()),
+        str(Path(shared_record_root).resolve()) if shared_record_root else '',
+        str(rel or REL_DIR),
+    ])
+    with _SEED_ONCE_LOCK:
+        if not force and key in _SEED_ONCE_DONE:
+            return dict(_SEED_ONCE_DONE[key])
+        if not force and not local_needs_seed(app_dir):
+            result = {'seeded': False, 'reason': 'local-already-usable', 'skipped': True}
+            _SEED_ONCE_DONE[key] = result
+            return dict(result)
+        try:
+            result = seed_local_from_central(app_dir, shared_record_root, rel=rel)
+        except Exception as exc:
+            result = {'seeded': False, 'reason': 'seed-exception', 'error': str(exc)}
+        _SEED_ONCE_DONE[key] = result
+        return dict(result)
 
 
 def publish_central_snapshot(app_dir: Path, shared_record_root: Path, *,

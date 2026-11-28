@@ -61,6 +61,21 @@ class BootHandoffTests(unittest.TestCase):
         self.assertIn('if force:', files_block)
         self.assertIn('_async_force_snapshot_response()', files_block)
 
+    def test_central_snapshot_seed_on_fast_boot(self):
+        py = (ROOT / 'server.py').read_text(encoding='utf-8')
+        self.assertIn('_ensure_central_index_seed', py)
+        self.assertIn('ensure_seeded_once', py)
+        prepare = py[py.index('def _initial_engine_prepare'):py.index('def _integrity_scheduler')]
+        self.assertIn('_ensure_central_index_seed()', prepare)
+        # Usable seeded Index skips cold rebuild on first prepare.
+        self.assertIn("if engine.get('usable'):", prepare)
+        self.assertIn('return', prepare)
+        engine_snap = py[py.index('def _engine_snapshot'):py.index('def _rebuild_engine')]
+        self.assertIn('_ensure_central_index_seed()', engine_snap)
+        self.assertIn('seededFromCentral', (ROOT / 'indexed_engine.py').read_text(encoding='utf-8'))
+        js = (ROOT / 'app.js').read_text(encoding='utf-8')
+        self.assertIn('seededFromCentral=', js)
+
     def test_boot_snapshot_has_timeout_and_fallback(self):
         js = (ROOT / 'app.js').read_text(encoding='utf-8')
         self.assertIn('function emptyBootSnapshot', js)

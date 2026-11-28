@@ -149,6 +149,38 @@ _SNAPSHOT_LOCK = threading.RLock()
 _SNAPSHOT_REFRESH_LOCK = threading.Lock()
 _SNAPSHOT_MANAGED_LOCK = threading.Lock()
 _SNAPSHOT_REFRESH_STARTED = False
+_CENTRAL_SEED_STATE = {'result': None}
+
+
+def _ensure_central_index_seed(force=False):
+    """0-Database/KAYNAK_INDEKS → local Index once for fast boot (no shared writable SQLite)."""
+    cfg = load_config()
+    if not central_index_snapshot.enabled(cfg):
+        return {'seeded': False, 'reason': 'disabled'}
+    root = Path(str(cfg.get('shared_record_root') or ''))
+    if not root.is_absolute():
+        return {'seeded': False, 'reason': 'no-shared-root'}
+    rel = str(cfg.get('central_index_rel') or central_index_snapshot.REL_DIR)
+    try:
+        result = central_index_snapshot.ensure_seeded_once(APP_DIR, root, rel=rel, force=force)
+    except Exception as exc:
+        result = {'seeded': False, 'reason': 'seed-exception', 'error': str(exc)}
+    _CENTRAL_SEED_STATE['result'] = result
+    if result.get('seeded'):
+        try:
+            DATA_ARCH_V2.audit('INDEX', 'CENTRAL_SEED', 'SYSTEM', 'INDEX', 'SEED', {
+                'buildId': result.get('build_id'), 'sourceDigest': result.get('source_digest'),
+                'fastBoot': True, 'writableSharedSqlite': False,
+            })
+        except Exception:
+            pass
+    elif result.get('error') or result.get('reason') in ('seed-exception', 'integrity-failed', 'central-index-hash-mismatch'):
+        try:
+            DATA_ARCH_V2.audit('INDEX', 'CENTRAL_SEED_SKIP', 'SYSTEM', 'INDEX', 'SEED', result)
+        except Exception:
+            pass
+    return result
+
 
 def invalidate_source_snapshot():
     with _SNAPSHOT_LOCK:
@@ -4227,6 +4259,26 @@ def _engine_snapshot(sources=None):
         _,sources,_=source_snapshot_cached(force=False)
     try:
         state=indexed_engine.active_build_state(APP_DIR,sources or {})
+        # Fast boot: if local Index MISSING/CORRUPT, seed from 0-Database/KAYNAK_INDEKS once
+        # before cold UNC rebuild. Never opens shared writable SQLite.
+        if not state.get('usable'):
+            seed=_ensure_central_index_seed()
+            if seed.get('seeded'):
+                state=indexed_engine.active_build_state(APP_DIR,sources or {})
+                state['centralSeed']=seed
+            else:
+                state['centralSeed']=seed
+        else:
+            seed=_CENTRAL_SEED_STATE.get('result') or {}
+            if seed:
+                state['centralSeed']=seed
+            if not state.get('seededFromCentral'):
+                # Reflect pointer flag even when seed ran in a prior process.
+                try:
+                    b=indexed_engine.resolve_active_build(APP_DIR)
+                    state['seededFromCentral']=bool(b.get('seeded_from_central'))
+                except Exception:
+                    pass
         build_state=_engine_build_state()
         if build_state.get('building') and not state.get('sourceIndexMatch'):
             state['status']='REBUILDING'
@@ -5280,26 +5332,24 @@ def _initial_engine_prepare():
     """Prepare the first verified read index without delaying the local GUI heartbeat.
 
     New source revisions must still pass the existing controlled source-acceptance flow.
-    First boot prefers seeding from central read-only KAYNAK_INDEKS snapshot when local
-    ACTIVE is missing — avoids cold UNC full rebuild when a published snapshot exists.
+    First boot: seed from central read-only 0-Database/KAYNAK_INDEKS when local ACTIVE
+    is missing — usable Index without cold UNC full rebuild. No shared writable SQLite.
     """
+    try:
+        # Seed ASAP (before sleep) so first /api/files light can hit usable Index.
+        _ensure_central_index_seed()
+    except Exception:
+        pass
     time.sleep(0.8)
     try:
-        cfg = load_config()
-        if central_index_snapshot.enabled(cfg):
-            try:
-                central_index_snapshot.seed_local_from_central(
-                    APP_DIR, Path(str(cfg.get('shared_record_root') or '')),
-                    rel=str(cfg.get('central_index_rel') or central_index_snapshot.REL_DIR))
-            except Exception as seed_exc:
-                try:
-                    DATA_ARCH_V2.audit('INDEX','CENTRAL_SEED_SKIP','SYSTEM','INDEX','SEED',{'error':str(seed_exc)})
-                except Exception:
-                    pass
         # Light first: never block startup on UNC managed scan (locks boot /api/files).
         cfg, sources, missing = source_snapshot_cached(force=False, light=True)
         engine=_engine_snapshot(sources)
         if missing and (engine.get('usable') or not any(sources.get(k) for k in ('MB51','MB52','ZMM048','KESIFLER'))):
+            return
+        # Seeded usable Index is enough for progressive boot; skip cold rebuild.
+        # Background forceScan / accept will refresh when sources actually change.
+        if engine.get('usable'):
             return
         if not engine.get('ready'):
             _start_engine_rebuild_background(sources)
