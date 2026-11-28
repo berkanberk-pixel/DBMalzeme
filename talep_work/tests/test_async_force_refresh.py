@@ -47,6 +47,38 @@ class AsyncForceRefreshTests(unittest.TestCase):
         self.assertIn('asyncRefresh', js)
         self.assertIn('syncPending', js)
 
+    def test_api_files_force_always_async(self):
+        """refresh=1 (force) must not sync-scan UNC on the HTTP thread."""
+        py = (ROOT / 'server.py').read_text(encoding='utf-8')
+        # Handler: any force → _async_force_snapshot_response
+        self.assertIn('if force:', py)
+        self.assertIn('_async_force_snapshot_response()', py)
+        # Accept path must not call source_snapshot_cached(force=True) after ACTIVE
+        accept = py[py.index('def _source_update_choice_locked'):py.index('def auto_accept_pending_sources')]
+        self.assertNotIn('source_snapshot_cached(force=True)', accept)
+        self.assertIn('source_snapshot_cached(force=False, light=True)', accept)
+        self.assertIn('_schedule_managed_snapshot_refresh', accept)
+
+    def test_light_force_schedules_background_not_managed_sync(self):
+        import server as srv
+        from unittest import mock
+        scheduled = {}
+
+        def fake_schedule(**kwargs):
+            scheduled.update(kwargs)
+            return True
+
+        with mock.patch.object(srv, '_schedule_managed_snapshot_refresh', side_effect=fake_schedule):
+            with mock.patch.object(srv, '_active_only_light_snapshot', return_value=(
+                {'_light_snapshot': True}, {'TANIMLAR': {'name': 't'}}, []
+            )):
+                with mock.patch.object(srv, 'managed_source_snapshot') as managed:
+                    srv.invalidate_source_snapshot()
+                    cfg, sources, missing = srv.source_snapshot_cached(force=True, light=True)
+        self.assertTrue(cfg.get('_light_snapshot'))
+        self.assertTrue(scheduled.get('with_accepts'))
+        managed.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()

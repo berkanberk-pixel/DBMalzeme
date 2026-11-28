@@ -7,7 +7,7 @@ Kaynak ve satır bağlantıları [ayrıntılı raporda](reviews/2026-11-28-8618f
 
 Önerilen sıra: F-001/F-002/F-004, ardından F-003/F-008; F-006/F-007/F-009. F-005 ve F-010 bağımsız mimari/iş takibi gerektirir.
 
-## F-001 — P1 — Yeniden üretildi
+## F-001 — P1 — Düzeltildi (HIZ-004 / talep-cdf67c833a014401)
 
 Dosyalar/akış: `source_row_diff.py: BUSINESS_KEYS, map_rows`.
 
@@ -15,7 +15,9 @@ Gözlem: Aynı rezervasyon/malzeme/kaynak/hedefte kalem 10 qty2→9, kalem 20 qt
 
 Kabul koşulu: Kalem ve mükerrer satırlar kayıpsız tutulmalı; tek kalem değişimi yakalanmalı; ekleme/silme/sıra değişikliği ve toplamlar test edilmeli.
 
-## F-002 — P1 — Yeniden üretildi
+Kanıt: ZMM048 `res_item` + occurrence; `test_zmm048_kalem_keeps_duplicate_items`. İndeks şemasında kalem kolonu hâlâ yok (ayrı sınır).
+
+## F-002 — P1 — Düzeltildi (HIZ-004 / talep-cdf67c833a014401)
 
 Dosyalar/akış: `server.py: accept noRowChange; indexed_engine.py: active_build_state`.
 
@@ -23,13 +25,17 @@ Gözlem: Aynı veriye boş satır ekleme: kabul ACTIVE, rebuild yok; indeks STAL
 
 Kabul koşulu: Fiziksel ve semantik kaynak sürümleri tutarlı izlenmeli; eşdeğer kabulden sonra READY/sourceIndexMatch doğru, gerçek değişimde eski indeks kullanılmıyor olmalı.
 
-## F-003 — P2 — Yeniden üretildi / hedef eksik
+Kanıt: `retarget_active_signature`; `test_retarget_keeps_ready_after_no_row_change`.
+
+## F-003 — P2 — Kısmi (HIZ-004 / talep-cdf67c833a014401)
 
 Dosyalar/akış: `indexed_engine.py: _clear_source_tables, build_engine`.
 
 Gözlem: İki ZMM098 satırından biri değişti; incremental=true fakat tablo tamamen silindi, iki satır okundu.
 
 Kabul koşulu: Anahtarlı ekle/güncelle/sil deltası gerçekten uygulanmalı; değişmeyen satırların yeniden işlenmediği ve etkilenen toplamların doğruluğu ölçülmeli.
+
+Kanıt: ZMM098/MB52 keyed delta (`rowDelta`); MB51/KESIF/TANIMLAR/ZMM048 hâlâ kaynak tablosu reload.
 
 ## F-004 — P1 — Yeniden üretildi
 

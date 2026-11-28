@@ -281,6 +281,10 @@ def source_snapshot_cached(force=False, light=False):
 
     light=True never waits on UNC managed scan and never holds the cache lock
     across network I/O — boot /api/files?light=1 must answer in milliseconds.
+
+    force=True alone used to block on managed UNC; callers that need a forced
+    network rescan must use _async_force_snapshot_response() so HTTP/UI never
+    waits on the share. This helper treats force+light as light+async schedule.
     """
     with _SNAPSHOT_LOCK:
         cached = _SNAPSHOT_CACHE.get('value')
@@ -288,14 +292,16 @@ def source_snapshot_cached(force=False, light=False):
         fresh = cached is not None and (time.time() - created) < 30
         if not force and fresh:
             return cached
-        if light and not force:
+        if light:
+            # force+light: ACTIVE meta now, UNC in background (UI never blocked).
             value = _active_only_light_snapshot()
             _SNAPSHOT_CACHE['value'] = value
             _SNAPSHOT_CACHE['created'] = time.time()
-            _schedule_managed_snapshot_refresh()
+            _schedule_managed_snapshot_refresh(with_accepts=bool(force), with_rebuild=bool(force))
             return value
 
     # Full managed path: serialize UNC work, but do not hold _SNAPSHOT_LOCK while scanning.
+    # force=True without light still sync-scans (maintenance / background workers only).
     with _SNAPSHOT_MANAGED_LOCK:
         if not force:
             with _SNAPSHOT_LOCK:
@@ -2015,6 +2021,7 @@ def _source_update_choice_locked(logical,choice,actor):
     row_diff=source_row_diff.diff_source_infos(previous_info, proposed.get(source), source)
     row_diff['acceptedAt']=datetime.now().astimezone().isoformat()
     row_diff['logical']=logical
+    row_diff_public=source_row_diff.strip_delta_keys(row_diff)
     root = _central_source_root(load_config())
     central = None
     central_warning = ''
@@ -2029,7 +2036,7 @@ def _source_update_choice_locked(logical,choice,actor):
         except OSError as exc:
             central_warning = str(exc)
     if not row_diff.get('hasChanges'):
-        # İçerik özeti farklı görünüp satır iş anahtarları aynıysa indeksi yenileme.
+        # F-002: satır aynı olsa da fiziksel imza değiştiyse STALE olmasın — digest retarget.
         new_info = proposed[source]
         if central:
             try:
@@ -2044,8 +2051,25 @@ def _source_update_choice_locked(logical,choice,actor):
         overrides=_json_load(SOURCE_PENDING_OVERRIDE_PATH,{})
         if logical in overrides:overrides.pop(logical,None);_json_save(SOURCE_PENDING_OVERRIDE_PATH,overrides)
         invalidate_source_snapshot()
-        DATA_ARCH_V2.audit('SOURCE','UPDATE_ACCEPTED_NO_ROW_CHANGE',actor,'SOURCE',logical,{**item,'rowDiff':row_diff})
-        return {'source':logical,'status':'ACTIVE','message':'Kaynak kabul edildi; satır değişikliği yok, mevcut indeks korundu.','buildId':'','pending':item,'rowDiff':row_diff,'centralSourceWarning':central_warning,'incremental':False}
+        retarget={'retargeted':False,'build_id':''}
+        try:
+            retarget=indexed_engine.retarget_active_signature(APP_DIR, proposed)
+        except Exception as retarget_exc:
+            # İndeks yok/bozuksa sessiz geç; sonraki rebuild toparlar. STALE riski audit'e yazılır.
+            try:
+                print('İmza hizalama atlandı: '+str(retarget_exc), flush=True)
+            except Exception:
+                pass
+            retarget={'retargeted':False,'build_id':'','error':str(retarget_exc)}
+        # UNC force yok — ACTIVE disk + light; ağ taraması arka plan.
+        try:
+            cfg,active,_=source_snapshot_cached(force=False, light=True)
+            DATA_ARCH_V2.observe_sources(active or {})
+        except Exception:
+            pass
+        _schedule_managed_snapshot_refresh(with_accepts=False, with_rebuild=False)
+        DATA_ARCH_V2.audit('SOURCE','UPDATE_ACCEPTED_NO_ROW_CHANGE',actor,'SOURCE',logical,{**item,'rowDiff':row_diff_public,'retarget':retarget})
+        return {'source':logical,'status':'ACTIVE','message':'Kaynak kabul edildi; satır değişikliği yok, indeks imzası hizalandı.' if retarget.get('retargeted') else 'Kaynak kabul edildi; satır değişikliği yok, mevcut indeks korundu.','buildId':retarget.get('build_id') or '','pending':item,'rowDiff':row_diff_public,'centralSourceWarning':central_warning,'incremental':False,'retargeted':bool(retarget.get('retargeted'))}
     result = _rebuild_engine(proposed, changed_sources={source}, row_diffs={source: row_diff})
     new_info = proposed[source]
     if central:
@@ -2068,9 +2092,16 @@ def _source_update_choice_locked(logical,choice,actor):
     elif logical in overrides:
         overrides.pop(logical,None)
     _json_save(SOURCE_PENDING_OVERRIDE_PATH,overrides)
-    invalidate_source_snapshot();cfg,active,_=source_snapshot_cached(force=True);DATA_ARCH_V2.observe_sources(active or {})
-    DATA_ARCH_V2.audit('SOURCE','UPDATE_ACCEPTED',actor,'SOURCE',logical,{**item,'buildId':result.get('build_id'),'rowDiff':row_diff,'incremental':result.get('incremental')})
-    return {'source':logical,'status':'ACTIVE','message':'Yeni kaynak kalite ve bütünlük kontrollerinden geçerek ACTIVE yapıldı.','buildId':result.get('build_id'),'pending':item,'rowDiff':row_diff,'incremental':bool(result.get('incremental')),'retainedMb51':result.get('retainedMb51',0),'centralSourceWarning':central_warning}
+    # Accept sonrası UNC force YOK — HTTP/UI kilitlemesin; light + async refresh.
+    invalidate_source_snapshot()
+    try:
+        cfg,active,_=source_snapshot_cached(force=False, light=True)
+        DATA_ARCH_V2.observe_sources(active or {})
+    except Exception:
+        pass
+    _schedule_managed_snapshot_refresh(with_accepts=False, with_rebuild=False)
+    DATA_ARCH_V2.audit('SOURCE','UPDATE_ACCEPTED',actor,'SOURCE',logical,{**item,'buildId':result.get('build_id'),'rowDiff':row_diff_public,'incremental':result.get('incremental'),'rowDelta':result.get('rowDelta')})
+    return {'source':logical,'status':'ACTIVE','message':'Yeni kaynak kalite ve bütünlük kontrollerinden geçerek ACTIVE yapıldı.','buildId':result.get('build_id'),'pending':item,'rowDiff':row_diff_public,'incremental':bool(result.get('incremental')),'rowDelta':bool(result.get('rowDelta')),'retainedMb51':result.get('retainedMb51',0),'centralSourceWarning':central_warning}
 
 
 def auto_accept_pending_sources(cfg=None, pending=None):
@@ -4221,7 +4252,10 @@ def _rebuild_engine(sources=None, changed_sources=None, row_diffs=None):
     global _ENGINE_LAST_ERROR,_ENGINE_LAST_BUILD
     with _ENGINE_BUILD_LOCK:
         if sources is None:
-            _,sources,missing=source_snapshot_cached(force=True)
+            # Prefer cached/ACTIVE; do not block rebuild start on UNC force.
+            _,sources,missing=source_snapshot_cached(force=False, light=True)
+            if missing:
+                _,sources,missing=source_snapshot_cached(force=False, light=False)
             if missing:
                 raise RuntimeError('Eksik kaynak bulundu: '+', '.join(missing))
         try:
@@ -5153,13 +5187,14 @@ class Handler(BaseHTTPRequestHandler):
             # force/monitor-changed: NEVER block HTTP on UNC — async pipeline.
             # light=1: ACTIVE disk only. Sync force was hanging WebView polls
             # (“Yerel servis yanıt vermedi”) and inventing salt-okunur.
+            # force=1 with or without light → async (UI UNC ile kilitlenmesin).
             async_refresh=False
-            if force and not light:
+            if force:
                 cfg, sources, missing = _async_force_snapshot_response()
                 async_refresh=True
                 auto_accept_results=[{'source':'*','ok':True,'result':{'status':'QUEUED','queued':True,'message':'Sessiz accept arka plan taraması sonrası'}}]
             else:
-                cfg, sources, missing = source_snapshot_cached(force=force, light=light)
+                cfg, sources, missing = source_snapshot_cached(force=False, light=light)
             source_versions={} if (light or async_refresh) else DATA_ARCH_V2.observe_sources(sources or {})
             engine=_engine_snapshot(sources)
             engine_refresh_error=''

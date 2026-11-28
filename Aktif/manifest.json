@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "product": "Talep Kontrol",
-  "release_id": "talep-ce0206fea6b49158",
-  "package": "Paketler/talep-ce0206fea6b49158/TalepKontrol.zip",
-  "sha256": "3ba201762c1232704ba4e1be91b93a4eb411a4e18183e07a762db4a71d49e626",
-  "size_bytes": 56368986,
-  "published_utc": "2026-11-28T18:02:34.437127+00:00",
-  "notes": "v1.0.4-book-grid: ZMM048/MB52/ZMM098 IndexedDB book kaldır; indeks+/api/grid decision"
+  "release_id": "talep-cdf67c833a014401",
+  "package": "Paketler/talep-cdf67c833a014401/TalepKontrol.zip",
+  "sha256": "0652f2bf3ef02a70ffc26b7ae996ca3e491955335dfc4a8cc8213cacda993c5b",
+  "size_bytes": 56370860,
+  "published_utc": "2026-11-28T18:09:21.796136+00:00",
+  "notes": "v1.0.4-inc-async: source_row_diff F-001/F-002/F-003 + async forceScan (UNC UI kilidi yok)"
 }

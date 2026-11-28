@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import csv, hashlib, json, os, sqlite3, tempfile, time, unicodedata, re, shutil, threading
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from uuid import uuid4
 
@@ -657,6 +657,241 @@ def _drop_derived_objects(c:sqlite3.Connection):
     ''')
 
 
+def _delta_key_core(key: str) -> str:
+    """Rol öneki ve occurrence sonekini ayıkla → saf iş anahtarı."""
+    text = str(key or '')
+    if '::' in text:
+        text = text.split('::', 1)[1]
+    if '#' in text:
+        base, _, suffix = text.rpartition('#')
+        if suffix.isdigit():
+            text = base
+    return text
+
+
+def _delete_keyed_rows(c: sqlite3.Connection, source: str, keys: Iterable[str]) -> int:
+    """F-003: kaldırılan/değişen anahtarları tablodan sil (ZMM098/MB52)."""
+    source = str(source or '').upper()
+    deleted = 0
+    seen = set()
+    for raw in keys or ():
+        core = _delta_key_core(raw)
+        if not core or core in seen:
+            continue
+        seen.add(core)
+        parts = core.split('|')
+        if source == 'ZMM098' and len(parts) >= 2:
+            c.execute('DELETE FROM zmm098 WHERE IFNULL(uy,\'\')=? AND IFNULL(dy,\'\')=?', (parts[0], parts[1]))
+            deleted += int(c.execute('SELECT changes()').fetchone()[0] or 0)
+        elif source == 'MB52' and len(parts) >= 4:
+            c.execute(
+                'DELETE FROM mb52 WHERE IFNULL(plant,\'\')=? AND IFNULL(dy,\'\')=? '
+                'AND IFNULL(material_code,\'\')=? AND IFNULL(valuation_type,\'\')=?',
+                (parts[0], parts[1], parts[2], parts[3]),
+            )
+            deleted += int(c.execute('SELECT changes()').fetchone()[0] or 0)
+    return deleted
+
+
+def _row_matches_delta_keys(source: str, key_parts: Sequence[str], touch: set) -> bool:
+    core = '|'.join(key_parts)
+    if core in touch:
+        return True
+    # occurrence / rol varyantları touch set'te tam anahtar olarak durabilir
+    for item in touch:
+        if _delta_key_core(item) == core:
+            return True
+    return False
+
+
+def _insert_source_delta(c: sqlite3.Connection, source: str, info: Dict[str, Any], touch_keys: set) -> int:
+    """Yalnız added/changed anahtarlarına düşen satırları yeniden ekle."""
+    source = str(source or '').upper()
+    if not touch_keys or not info:
+        return 0
+    # Geçici: hedef satırları dosyadan süzüp mevcut insert yardımcılarına vermek yerine
+    # dosya başına filtreli mini insert (ZMM098/MB52).
+    count = 0
+    for f in info.get('files') or []:
+        if source == 'ZMM098':
+            count += _insert_z98_delta(c, f, touch_keys)
+        elif source == 'MB52':
+            count += _insert_mb52_delta(c, f, touch_keys)
+    return count
+
+
+def _insert_z98_delta(c, f, touch_keys: set) -> int:
+    hdr = None
+    ix = {}
+    buf = []
+    count = 0
+    for kind, row, rowno in _iter_rows(f):
+        if kind == '__HEADER__':
+            hdr = row
+            ix = {g: idx(hdr, g) for g in ['plant', 'storage', 'storage_desc', 'guarantee_main', 'guarantee_cash', 'guarantee_manual', 'z98_stock_value', 'z98_available']}
+            preferred = norm('Rez.Yapılabilir Tutar (Açık Rez.Dahil)')
+            for i, h in enumerate(hdr):
+                if norm(h) == preferred:
+                    ix['z98_available'] = i
+                    break
+            continue
+        uy = str(cell(row, ix['plant'])).strip()
+        dy = str(cell(row, ix['storage'])).strip()
+        if not (uy and dy):
+            continue
+        if not _row_matches_delta_keys('ZMM098', [uy, dy], touch_keys):
+            continue
+        desc = str(cell(row, ix['storage_desc'])).strip()
+        vals = (uy, dy, desc, number(cell(row, ix['guarantee_main'])), number(cell(row, ix['guarantee_cash'])),
+                number(cell(row, ix['guarantee_manual'])), number(cell(row, ix['z98_stock_value'])),
+                number(cell(row, ix['z98_available'])), norm(' '.join([uy, dy, desc])))
+        buf.append(vals)
+        count += 1
+    if buf:
+        c.executemany('INSERT INTO zmm098(uy,dy,dy_desc,main,cash,manual,stock_value,available,search_text) VALUES(?,?,?,?,?,?,?,?,?)', buf)
+    return count
+
+
+def _insert_mb52_delta(c, f, touch_keys: set) -> int:
+    hdr = None
+    ix = {}
+    buf = []
+    count = 0
+    for kind, row, rowno in _iter_rows(f):
+        if kind == '__HEADER__':
+            hdr = row
+            ix = {g: idx(hdr, g) for g in ['plant', 'storage', 'storage_desc', 'material_group', 'material_group_desc', 'material', 'material_desc', 'uom', 'unrestricted', 'total_value', 'unrestricted_value', 'valuation_type', 'depot_type']}
+            continue
+        plant = str(cell(row, ix['plant'])).strip()
+        dy = str(cell(row, ix['storage'])).strip()
+        mc = str(cell(row, ix['material'])).strip()
+        if not (plant and dy and mc):
+            continue
+        val = str(cell(row, ix['valuation_type'])).strip()
+        if not _row_matches_delta_keys('MB52', [plant, dy, mc, val], touch_keys):
+            continue
+        vals = (plant, dy, str(cell(row, ix['storage_desc'])).strip(), str(cell(row, ix['material_group'])).strip(),
+                str(cell(row, ix['material_group_desc'])).strip(), mc, str(cell(row, ix['material_desc'])).strip(),
+                str(cell(row, ix['uom'])).strip(), number(cell(row, ix['unrestricted'])), number(cell(row, ix['total_value'])),
+                number(cell(row, ix['unrestricted_value'])), val, str(cell(row, ix['depot_type'])).strip())
+        search = norm(' '.join(map(str, [*vals[:8], vals[11], vals[12]])))
+        buf.append(vals + (search,))
+        count += 1
+        if len(buf) >= 5000:
+            c.executemany('INSERT INTO mb52(plant,dy,dy_desc,material_group,material_group_desc,material_code,material_desc,uom,qty,total_value,unrestricted_value,valuation_type,depot_type,search_text) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)', buf)
+            buf = []
+    if buf:
+        c.executemany('INSERT INTO mb52(plant,dy,dy_desc,material_group,material_group_desc,material_code,material_desc,uom,qty,total_value,unrestricted_value,valuation_type,depot_type,search_text) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)', buf)
+    return count
+
+
+def retarget_active_signature(app_dir: Path, sources: Dict[str, Any]) -> Dict[str, Any]:
+    """F-002: satır değişikliği yokken fiziksel imzayı ACTIVE indekse hizala (STALE yok).
+
+    CSV satırları yeniden okunmaz; önceki indeks + parquet kopyalanır, yalnız
+    source digest / manifest / pointer güncellenir. Ortak yazılabilir SQLite yok.
+    """
+    app_dir = Path(app_dir)
+    sig = current_signature(sources)
+    previous = resolve_active_build(app_dir)
+    if not previous:
+        raise RuntimeError('ACTIVE indeks yok; imza hizalama yapılamaz.')
+    previous_db = Path(previous.get('indexDb') or '')
+    previous_manifest = Path(previous.get('manifestPath') or '')
+    if not previous_db.is_file() or not previous_manifest.is_file():
+        raise RuntimeError('ACTIVE indeks dosyaları eksik.')
+    old_manifest = load_manifest(previous_manifest)
+    if not old_manifest:
+        raise RuntimeError('ACTIVE manifest okunamadı.')
+    if old_manifest.get('digest') == sig.get('digest'):
+        return {
+            'retargeted': False, 'incremental': False, 'build_id': previous.get('build_id') or old_manifest.get('build_id'),
+            'digest': sig.get('digest'), 'message': 'İmza zaten uyumlu.',
+        }
+    cache = storage_root(app_dir)
+    cache.mkdir(parents=True, exist_ok=True)
+    rules = _ruleset_info(app_dir)
+    stamp = time.strftime('%Y%m%dT%H%M%S')
+    build_id = f"IDX-{stamp}-{sig['digest'][:10]}-{uuid4().hex[:12]}"
+    build_dir = cache / 'builds' / build_id
+    build_dir.mkdir(parents=True, exist_ok=True)
+    pqroot = cache / 'parquet' / 'BUILDS' / build_id
+    pqroot.mkdir(parents=True, exist_ok=True)
+    index_db = build_dir / 'talep_index.sqlite'
+    manifest_path = build_dir / 'INDEX_MANIFEST.json'
+    shutil.copy2(previous_db, index_db)
+    old_pq = Path(previous.get('parquetRoot') or '')
+    if old_pq.is_dir():
+        for item in old_pq.iterdir():
+            if item.is_file():
+                shutil.copy2(item, pqroot / item.name)
+    c = sqlite3.connect(index_db)
+    try:
+        c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('source_digest',?)", (sig['digest'],))
+        c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('build_id',?)", (build_id,))
+        c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('built_at',?)", (time.strftime('%Y-%m-%dT%H:%M:%S'),))
+        c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('incremental',?)", ('0',))
+        c.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('retarget',?)", ('1',))
+        c.commit()
+    finally:
+        c.close()
+    index_hash = file_sha256(index_db)
+    parquet_stats = {}
+    for item in pqroot.iterdir() if pqroot.is_dir() else ():
+        if item.is_file() and item.suffix == '.parquet':
+            try:
+                parquet_stats[item.name] = {
+                    'parquet': str(item), 'rows': 0, 'columns': 0, 'source_hash': '',
+                    'size': item.stat().st_size, 'sha256': file_sha256(item),
+                }
+            except Exception:
+                pass
+    manifest = {
+        **sig,
+        'build_id': build_id,
+        'built_at': time.strftime('%Y-%m-%dT%H:%M:%S'),
+        'index_db': index_db.name,
+        'index_sha256': index_hash,
+        'ruleset': rules,
+        'quality': old_manifest.get('quality') or {},
+        'incremental': False,
+        'retarget': True,
+        'changedSources': [],
+        'rowDiffs': {},
+        'parquet': {
+            k: {
+                'file': Path(v['parquet']).name if v.get('parquet') else k,
+                'rows': v.get('rows', 0), 'columns': v.get('columns', 0),
+                'source_hash': v.get('source_hash', ''), 'size': v.get('size', 0),
+                'sha256': v.get('sha256', ''),
+            } for k, v in parquet_stats.items()
+        },
+        'stats': old_manifest.get('stats') or {},
+    }
+    tmp_manifest = manifest_path.with_suffix('.json.next')
+    tmp_manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
+    os.replace(tmp_manifest, manifest_path)
+    manifest_hash = file_sha256(manifest_path)
+    pointer = {
+        'build_id': build_id, 'source_digest': sig['digest'],
+        'created_at': time.strftime('%Y-%m-%dT%H:%M:%S'),
+        'index_db': str(index_db.relative_to(cache)),
+        'manifest': str(manifest_path.relative_to(cache)),
+        'parquet_root': str(pqroot.relative_to(cache)),
+        'index_sha256': index_hash, 'manifest_sha256': manifest_hash,
+        'ruleset_version': rules['version'], 'ruleset_hash': rules['hash'],
+    }
+    pointer_path = _active_pointer(app_dir)
+    tmp_pointer = pointer_path.with_suffix('.json.next')
+    tmp_pointer.write_text(json.dumps(pointer, ensure_ascii=False, indent=2), encoding='utf-8')
+    os.replace(tmp_pointer, pointer_path)
+    return {
+        'retargeted': True, 'incremental': False, 'build_id': build_id,
+        'digest': sig['digest'], 'index_db': str(index_db), 'manifest': str(manifest_path),
+        'message': 'Satır değişmedi; indeks imzası yeni ACTIVE kaynağa hizalandı.',
+    }
+
+
 def _retain_mb51_history(c:sqlite3.Connection, previous_db:Path)->int:
     """Yeni MB51 özetinde olmayan belge satırlarını önceki indeksten koru (tarih filtresi daralması)."""
     previous_db=Path(previous_db)
@@ -709,7 +944,7 @@ def build_engine(app_dir:Path,sources:Dict[str,Any],build_parquet:bool=True,
     sig=current_signature(sources);rules=_ruleset_info(app_dir);stamp=time.strftime('%Y%m%dT%H%M%S');build_id=f"IDX-{stamp}-{sig['digest'][:10]}-{uuid4().hex[:12]}"
     build_dir=cache/'builds'/build_id;build_dir.mkdir(parents=True,exist_ok=True);pqroot=cache/'parquet'/'BUILDS'/build_id;pqroot.mkdir(parents=True,exist_ok=True)
     index_db=build_dir/'talep_index.sqlite';manifest_path=build_dir/'INDEX_MANIFEST.json'
-    stats={'sources':{},'started_at':time.time(),'engine_version':ENGINE_VERSION,'schema_version':INDEX_SCHEMA_VERSION,'build_id':build_id,'incremental':False,'retainedMb51':0,'rowDiffs':row_diffs or {}};quality={}
+    stats={'sources':{},'started_at':time.time(),'engine_version':ENGINE_VERSION,'schema_version':INDEX_SCHEMA_VERSION,'build_id':build_id,'incremental':False,'rowDelta':False,'retainedMb51':0,'rowDiffs':row_diffs or {}};quality={}
     changed={str(x).upper() for x in (changed_sources or []) if str(x or '').strip()}
     try:
         previous=resolve_active_build(app_dir)
@@ -720,8 +955,16 @@ def build_engine(app_dir:Path,sources:Dict[str,Any],build_parquet:bool=True,
         previous_db=Path()
     all_sources={'ZMM048','MB51','MB52','ZMM098','TANIMLAR','KESIFLER'}
     use_incremental=bool(changed) and previous_db.is_file() and changed < all_sources and changed.issubset(all_sources)
+    # F-003: ZMM098/MB52 için anahtarlı satır delta (supportsRowDelta); diğerleri tablo reload.
+    row_delta_sources=set()
+    if use_incremental and row_diffs:
+        for src in changed:
+            diff=(row_diffs or {}).get(src) or {}
+            if diff.get('supportsRowDelta') and src in ('ZMM098','MB52') and 'addedKeys' in diff:
+                row_delta_sources.add(src)
     if use_incremental:
         stats['incremental']=True
+        stats['rowDelta']=bool(row_delta_sources)
         shutil.copy2(previous_db, index_db)
         reload_sources=set(changed)
     else:
@@ -732,13 +975,21 @@ def build_engine(app_dir:Path,sources:Dict[str,Any],build_parquet:bool=True,
         if use_incremental:
             _drop_derived_objects(c)
             for source in changed:
-                _clear_source_tables(c, source)
+                if source in row_delta_sources:
+                    diff=(row_diffs or {}).get(source) or {}
+                    touch=set(diff.get('removedKeys') or []) | set(diff.get('changedKeys') or []) | set(diff.get('addedKeys') or [])
+                    deleted=_delete_keyed_rows(c, source, set(diff.get('removedKeys') or []) | set(diff.get('changedKeys') or []))
+                    n=_insert_source_delta(c, source, (sources or {}).get(source) or {}, touch)
+                    stats['sources'][f'_delta_{source}']={'source':source,'role':'ROW_DELTA','rows_indexed':n,'rows_deleted':deleted,'deltaKeys':len(touch)}
+                else:
+                    _clear_source_tables(c, source)
         else:
             _create_schema(c)
         for source,info in (sources or {}).items():
             if not info:continue
             source_u=str(source).upper()
             if source_u not in reload_sources:continue
+            if source_u in row_delta_sources:continue
             for f in info.get('files') or []:
                 role=str(f.get('role') or '')
                 if source_u=='MB51':n=_insert_mb51(c,f)
@@ -756,7 +1007,7 @@ def build_engine(app_dir:Path,sources:Dict[str,Any],build_parquet:bool=True,
                     stats['sources'].setdefault('_mb51_history',{})['retained_rows']=retained
         _finalize(c);quality=_quality_checks(c,sources or {})
         c.execute('DELETE FROM meta')
-        for k,v in [('engine_version',ENGINE_VERSION),('schema_version',str(INDEX_SCHEMA_VERSION)),('source_digest',sig['digest']),('build_id',build_id),('ruleset_version',rules['version']),('ruleset_hash',rules['hash']),('built_at',time.strftime('%Y-%m-%dT%H:%M:%S')),('incremental','1' if stats['incremental'] else '0')]:c.execute('INSERT INTO meta(key,value) VALUES(?,?)',(k,v))
+        for k,v in [('engine_version',ENGINE_VERSION),('schema_version',str(INDEX_SCHEMA_VERSION)),('source_digest',sig['digest']),('build_id',build_id),('ruleset_version',rules['version']),('ruleset_hash',rules['hash']),('built_at',time.strftime('%Y-%m-%dT%H:%M:%S')),('incremental','1' if stats['incremental'] else '0'),('row_delta','1' if stats['rowDelta'] else '0')]:c.execute('INSERT INTO meta(key,value) VALUES(?,?)',(k,v))
         c.commit()
     finally:c.close()
     if quality.get('level')=='CRITICAL':

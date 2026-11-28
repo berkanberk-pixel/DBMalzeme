@@ -59,6 +59,38 @@ class SourceRowDiffTests(unittest.TestCase):
             self.assertEqual(diff['removed'], 0)
             self.assertEqual(diff['changed'], 0)
 
+    def test_zmm048_kalem_keeps_duplicate_items(self):
+        """F-001: aynı rezervasyon/malzeme/rota + farklı kalem → hasChanges doğru."""
+        with tempfile.TemporaryDirectory() as td:
+            old = Path(td) / 'old.csv'
+            new = Path(td) / 'new.csv'
+            hdr = ('Rezervasyon;Malzeme;Kalem;Rezervasyon Miktarı;'
+                   'TESLİM EDEN ÜY;TESLİM EDEN DY;TESLİM ALAN ÜY;Teslim alan DY')
+            self._write(old, hdr + '\nR1;M1;10;2;1000;D1;2000;D2\nR1;M1;20;3;1000;D1;2000;D2\n')
+            self._write(new, hdr + '\nR1;M1;10;9;1000;D1;2000;D2\nR1;M1;20;3;1000;D1;2000;D2\n')
+            old_info = {'files': [{'path': str(old), 'delimiter': ';', 'encoding': 'utf-8-sig', 'headerRow': 0}]}
+            new_info = {'files': [{'path': str(new), 'delimiter': ';', 'encoding': 'utf-8-sig', 'headerRow': 0}]}
+            diff = srd.diff_source_infos(old_info, new_info, 'ZMM048')
+            self.assertTrue(diff['hasChanges'], diff)
+            self.assertEqual(diff['changed'], 1, diff)
+            self.assertEqual(diff['unchanged'], 1, diff)
+            self.assertEqual(diff['totalOld'], 2)
+            self.assertEqual(diff['totalNew'], 2)
+
+    def test_zmm098_supports_row_delta_keys(self):
+        with tempfile.TemporaryDirectory() as td:
+            old = Path(td) / 'old.csv'
+            new = Path(td) / 'new.csv'
+            self._write(old, 'Üretim yeri;Depo yeri;Güvence Teminat Tutarı\n1000;D1;100\n1000;D2;50\n')
+            self._write(new, 'Üretim yeri;Depo yeri;Güvence Teminat Tutarı\n1000;D1;120\n1000;D2;50\n')
+            old_info = {'files': [{'path': str(old), 'delimiter': ';', 'encoding': 'utf-8-sig', 'headerRow': 0}]}
+            new_info = {'files': [{'path': str(new), 'delimiter': ';', 'encoding': 'utf-8-sig', 'headerRow': 0}]}
+            diff = srd.diff_source_infos(old_info, new_info, 'ZMM098')
+            self.assertTrue(diff['supportsRowDelta'], diff)
+            self.assertIn('changedKeys', diff)
+            self.assertEqual(diff['changed'], 1)
+            self.assertEqual(diff['unchanged'], 1)
+
 
 class SourceAccessStateTests(unittest.TestCase):
     def test_active_copy_keeps_app_writable_when_candidate_missing(self):

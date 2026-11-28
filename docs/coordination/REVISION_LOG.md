@@ -1,5 +1,15 @@
 # Revizyon günlüğü
 
+## HIZ-004 — 2026-11-28 — Incremental + async forceScan
+
+- Kullanıcı isteği: hız paketi adım 4 / [15]; `source_row_diff` + forceScan arka plan güçlendir.
+- Önceki: satır diff kalemsiz ZMM048 (F-001); no-row-change STALE (F-002); incremental = tablo reload (F-003); accept sonrası `force=True` UNC.
+- Yeni: ZMM048 `res_item` + occurrence; `retarget_active_signature`; ZMM098/MB52 keyed delta; `/api/files?refresh=1` ve accept yolu UNC’yi HTTP’de bekletmez.
+- Dosyalar: `source_row_diff.py`, `indexed_engine.py`, `server.py`, `test_source_row_diff.py`, `test_async_force_refresh.py`, `test_incremental_row_delta.py`, `test_boot_handoff.py`, Aktif `talep-cdf67c833a014401`.
+- Test: `python3 -m unittest discover -s talep_work/tests` → 94 OK.
+- Kilitler: ortak yazılabilir SQLite yok; sunucu yok. ZMM048 indeks şemasında kalem kolonu hâlâ yok (diff kalemli; tablo reload).
+- PR #1 branch: `cursor/central-source-incremental-7260`.
+
 ## HIZ-003 — 2026-11-28 — Book → grid/API (ZMM048/MB52/ZMM098)
 
 - Kullanıcı isteği: hız paketi adım 3 / [14]; IndexedDB book kaldır; indeks+`/api/grid`.

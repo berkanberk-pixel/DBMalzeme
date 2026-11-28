@@ -56,7 +56,10 @@ class BootHandoffTests(unittest.TestCase):
         self.assertIn('source_versions={} if (light or async_refresh) else', files_block)
         self.assertIn('_active_only_light_snapshot', py)
         self.assertIn('_async_force_snapshot_response', py)
-        self.assertIn('source_snapshot_cached(force=force, light=light)', files_block)
+        # force → async; non-force light/meta uses cached light path (UNC yok).
+        self.assertIn('source_snapshot_cached(force=False, light=light)', files_block)
+        self.assertIn('if force:', files_block)
+        self.assertIn('_async_force_snapshot_response()', files_block)
 
     def test_boot_snapshot_has_timeout_and_fallback(self):
         js = (ROOT / 'app.js').read_text(encoding='utf-8')
