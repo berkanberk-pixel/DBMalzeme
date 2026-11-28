@@ -34,6 +34,14 @@ Codex: `codex exec --help` ile kurulu sürümün desteklediği seçenekler kontr
 1. `config.example.json` dosyasını repo dışında `config.local.json` olarak kopyalayın ve mutlak yerel yolları ayarlayın.
 2. Cursor'a aynı `CURSOR_CONFIG_DIR` ile `node <cursor-index.js> login` komutundan giriş yapın.
 3. `codex login status` ile mevcut ChatGPT oturumunu doğrulayın.
+   Uygulama içi tarayıcı indirme sayfasına yönlendiriyorsa Cursor girişini gerçek Windows terminalinde başlatın:
+
+```powershell
+./tools/coordination/Connect-Cursor.ps1 -Config C:/PATH/coordination/config.local.json
+```
+
+Bu komut kurulu CLI'yi kullanır ve sistemin normal tarayıcısını açar; Cursor masaüstünü yeniden kurmaz.
+
 4. Servisi başlatın:
 
 ```powershell
