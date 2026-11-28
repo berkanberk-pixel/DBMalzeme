@@ -3,6 +3,7 @@
 ## COORD-001 — 2026-11-28 — araştırma koordinasyon servisi
 
 - Kullanıcı, yerel Cursor CLI ve mevcut hesabıyla bağlantıyı seçti; koordinasyon servisini kurmayı yetkilendirdi.
+- Hesap onayının sohbet üzerinden gecikebilmesi nedeniyle paneldeki giriş beklemesi 30 dakikadır; ajan turu 600 saniye sınırını korur.
 - Son kapsam: önce araştırma ve karşılıklı eleştiri; ortak plan kullanıcıyla incelenip onaylanmadan Talep Kontrol uygulama geliştirmesi başlamaz.
 - `tools/coordination/`: yerel HTTP paneli, kalıcı kuyruk, Cursor → Codex → Cursor → Codex dört turluk aktarım, iptal/duraklatma, günlük çağrı ve süre sınırı.
 - Kaynak bağlamı ilk turda sabitlenir. CLI dosya okuma engelliyse ajanlara bu açıkça işaretlenmiş bağlam aktarılır. Güncel metot önerileri için resmi kaynak istenir.

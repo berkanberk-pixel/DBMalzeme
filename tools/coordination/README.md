@@ -88,3 +88,4 @@ duraklatma, onayın geliştirme başlatmaması ve hata durumları sentetik testl
 Gerçek Cursor/Codex oturumları ayrıca bağlantı ve tartışma testiyle sınanmalıdır.
 
 Her iki CLI hesabı da bağlı olmadan kuyruktaki işler başlatılmaz. Bağlantılar tamamlandığında, kuyruk duraklatılmamışsa araştırma otomatik başlar.
+Panelden başlatılan hesap girişinde onay için 30 dakika beklenir; bu süre ajan araştırma turunun 600 saniyelik sınırından ayrıdır.

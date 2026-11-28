@@ -503,7 +503,7 @@ class Connections:
                                       text=True,encoding='utf-8',errors='replace',env=self.env(),**options)
                 attach_process_tree(proc)
                 self.login_proc=proc
-            timer=threading.Timer(600,lambda:stop_process(proc))
+            timer=threading.Timer(1800,lambda:stop_process(proc))
             timer.daemon=True
             timer.start()
             for line in proc.stdout:
