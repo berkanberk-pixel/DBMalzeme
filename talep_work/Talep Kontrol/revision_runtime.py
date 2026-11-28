@@ -16,11 +16,17 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 DEFAULT_SCAN_MAX_DEPTH = 1
 # [2] 24 saat → uyarı (sert kilit değil).
 SOURCE_FRESHNESS_WARN_HOURS = 24
-# [16] MB51 bildirim tarama TTL (saniye).
+# [16] / hız paketi adım 2 — MB51 bildirim reconcile TTL + digest cache.
 NOTIFICATION_MB51_TTL_SEC = 300
+NOTIFICATION_MB51_CACHE_MAX = 4000
 # Monitor stamp cache.
 _MONITOR_STAMP_CACHE: Dict[str, Any] = {'stamp': '', 'at': 0.0}
-_NOTIF_MB51_CACHE: Dict[str, Any] = {'at': 0.0, 'ran': False}
+_NOTIF_MB51_CACHE: Dict[str, Any] = {
+    'at': 0.0,
+    'ran': False,
+    'scan_digest': '',
+    'results': {},  # item_key -> {'digest': str, 'rec': dict}
+}
 _AUTO_ACCEPT_LOCK = threading.RLock()
 _AUTO_FINAL_LOCK = threading.RLock()
 _AUTO_FINAL_DONE: set = set()
@@ -187,23 +193,88 @@ def freshness_warnings(source_health: Optional[dict], warn_hours: float = SOURCE
     return out
 
 
-def should_run_mb51_notification_scan(force: bool = False, ttl_sec: float = NOTIFICATION_MB51_TTL_SEC) -> bool:
-    """[16] Bildirim MB51 reconcile lazy TTL."""
+def notification_mb51_scan_digest(index_digest: str = '', materials_stamp: str = '') -> str:
+    """MB51 indeks + kontrol malzemeleri damgası — tarama kapısı için."""
+    raw = f"{index_digest or ''}|{materials_stamp or ''}"
+    return hashlib.sha256(raw.encode('utf-8')).hexdigest()
+
+
+def notification_mb51_item_key(control_id: str, material: str) -> str:
+    return f"{str(control_id or '').strip()}|{str(material or '').strip().upper()}"
+
+
+def notification_mb51_item_digest(
+    control_id: str,
+    material: str,
+    approved_qty: float,
+    decision: str,
+    scope: Optional[dict],
+    index_digest: str = '',
+) -> str:
+    """Kontrol kalemi + indeks özeti — reconcile sonucu cache anahtarı."""
+    payload = {
+        'controlId': str(control_id or '').strip(),
+        'material': str(material or '').strip().upper(),
+        'approvedQty': float(approved_qty or 0),
+        'decision': str(decision or '').strip().upper(),
+        'scope': scope or {},
+        'indexDigest': str(index_digest or ''),
+    }
+    return hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode('utf-8')
+    ).hexdigest()
+
+
+def should_run_mb51_notification_scan(
+    force: bool = False,
+    ttl_sec: float = NOTIFICATION_MB51_TTL_SEC,
+    scan_digest: str = '',
+) -> bool:
+    """[16] Bildirim MB51 reconcile: TTL veya scan digest değişimi; her tick full değil."""
     now = time.time()
-    if force:
+    prev_digest = str(_NOTIF_MB51_CACHE.get('scan_digest') or '')
+    digest = str(scan_digest or '')
+    digest_changed = bool(digest) and digest != prev_digest
+    ttl_expired = (now - float(_NOTIF_MB51_CACHE.get('at') or 0)) >= float(ttl_sec)
+    if force or digest_changed or ttl_expired:
         _NOTIF_MB51_CACHE['at'] = now
         _NOTIF_MB51_CACHE['ran'] = True
-        return True
-    if (now - float(_NOTIF_MB51_CACHE.get('at') or 0)) >= ttl_sec:
-        _NOTIF_MB51_CACHE['at'] = now
-        _NOTIF_MB51_CACHE['ran'] = True
+        if digest:
+            _NOTIF_MB51_CACHE['scan_digest'] = digest
         return True
     return False
+
+
+def get_mb51_reconcile_cache(item_key: str, item_digest: str) -> Optional[dict]:
+    """Digest eşleşirse önbellekteki reconcile sonucunu döner (kopya)."""
+    entry = (_NOTIF_MB51_CACHE.get('results') or {}).get(str(item_key or ''))
+    if not entry:
+        return None
+    if str(entry.get('digest') or '') != str(item_digest or ''):
+        return None
+    rec = entry.get('rec')
+    return dict(rec) if isinstance(rec, dict) else None
+
+
+def put_mb51_reconcile_cache(item_key: str, item_digest: str, rec: Optional[dict]) -> None:
+    """Yerel bellek cache; ortak yazılabilir SQLite yok."""
+    if not item_key or not isinstance(rec, dict):
+        return
+    results = _NOTIF_MB51_CACHE.setdefault('results', {})
+    if len(results) >= NOTIFICATION_MB51_CACHE_MAX and item_key not in results:
+        # FIFO-ish: drop an arbitrary oldest-inserted key (dict preserves insert order).
+        try:
+            results.pop(next(iter(results)))
+        except StopIteration:
+            pass
+    results[str(item_key)] = {'digest': str(item_digest or ''), 'rec': dict(rec)}
 
 
 def reset_notification_mb51_cache():
     _NOTIF_MB51_CACHE['at'] = 0.0
     _NOTIF_MB51_CACHE['ran'] = False
+    _NOTIF_MB51_CACHE['scan_digest'] = ''
+    _NOTIF_MB51_CACHE['results'] = {}
 
 
 def is_tesis_work(value: Any) -> bool:

@@ -100,6 +100,27 @@ class Mb51LazyTests(unittest.TestCase):
         self.assertFalse(rr.should_run_mb51_notification_scan(force=False, ttl_sec=100))
         self.assertTrue(rr.should_run_mb51_notification_scan(force=True, ttl_sec=100))
 
+    def test_digest_change_bypasses_ttl(self):
+        d1 = rr.notification_mb51_scan_digest('idx-a', 'mat-1')
+        d2 = rr.notification_mb51_scan_digest('idx-b', 'mat-1')
+        self.assertNotEqual(d1, d2)
+        self.assertTrue(rr.should_run_mb51_notification_scan(force=False, ttl_sec=1000, scan_digest=d1))
+        self.assertFalse(rr.should_run_mb51_notification_scan(force=False, ttl_sec=1000, scan_digest=d1))
+        self.assertTrue(rr.should_run_mb51_notification_scan(force=False, ttl_sec=1000, scan_digest=d2))
+
+    def test_reconcile_result_cache_by_item_digest(self):
+        key = rr.notification_mb51_item_key('KD-1', 'M1')
+        dig = rr.notification_mb51_item_digest('KD-1', 'M1', 5, 'ONAYLA', {'uom': 'AD'}, 'idx-1')
+        dig2 = rr.notification_mb51_item_digest('KD-1', 'M1', 6, 'ONAYLA', {'uom': 'AD'}, 'idx-1')
+        self.assertNotEqual(dig, dig2)
+        self.assertIsNone(rr.get_mb51_reconcile_cache(key, dig))
+        rr.put_mb51_reconcile_cache(key, dig, {'verified': True, 'actualQty': 5})
+        hit = rr.get_mb51_reconcile_cache(key, dig)
+        self.assertEqual(hit['actualQty'], 5)
+        hit['actualQty'] = 99  # caller mutation must not poison cache
+        self.assertEqual(rr.get_mb51_reconcile_cache(key, dig)['actualQty'], 5)
+        self.assertIsNone(rr.get_mb51_reconcile_cache(key, dig2))
+
 
 class Mb51RealizedTests(unittest.TestCase):
     def test_realized_rules(self):

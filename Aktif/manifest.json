@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "product": "Talep Kontrol",
-  "release_id": "talep-b50be49287f96c01",
-  "package": "Paketler/talep-b50be49287f96c01/TalepKontrol.zip",
-  "sha256": "ab5c1d8f4247ef5b93c87b649104d9394fbde0bfe6dc1bb3e0fca2fc056f6fbc",
-  "size_bytes": 56296930,
-  "published_utc": "2026-11-28T17:52:24.537017+00:00",
-  "notes": "v1.0.4-sparse-sha: pending MB51/MB52 büyük dosyada mtime/size önce + seyrek SHA; tam hash yok"
+  "release_id": "talep-57b6e79bb0bddc68",
+  "package": "Paketler/talep-57b6e79bb0bddc68/TalepKontrol.zip",
+  "sha256": "9d3b7e982678f680840ae62c3237596808c810fd3f0695e682aaa1c9876bc2fe",
+  "size_bytes": 56297995,
+  "published_utc": "2026-11-28T17:56:38.520612+00:00",
+  "notes": "v1.0.4-notif-mb51-cache: bildirim MB51 reconcile TTL+digest cache; her tick full değil"
 }

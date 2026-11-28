@@ -126,10 +126,10 @@ class PendingUpdatesSparseTests(unittest.TestCase):
             size = rr.PENDING_SPARSE_MIN_BYTES + 50_000
             payload = bytearray(b'B' * size)
             active.write_bytes(payload)
-            # Differ in middle so sparse catches it; size same → bump mtime via content rewrite + utime differ.
+            # Differ in middle so sparse catches it; force mtime/size fingerprint mismatch.
             payload[size // 2] = (payload[size // 2] + 1) % 256
             cand.write_bytes(payload)
-            # Force fingerprint mismatch via size bump on candidate name/size field.
+            os.utime(cand, ns=(active.stat().st_mtime_ns + 10_000_000, active.stat().st_mtime_ns + 10_000_000))
             ai = self._info(active, name='MB51.csv')
             ci = self._info(cand, name='MB51.csv')
             self.assertNotEqual(srv._source_quick_fingerprint(ai), srv._source_quick_fingerprint(ci))

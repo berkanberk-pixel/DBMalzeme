@@ -1244,11 +1244,26 @@ def build_notifications(force_mb51=False):
                 r=c.execute('SELECT COUNT(*) c FROM kesif WHERE work_code=? AND (remaining<0 OR issue=1)',[wc]).fetchone(); cnt=int(r['c'] or 0)
                 if cnt:_notif_upsert(d,'KESIF-'+wc,f'{label} keşif',f'{cnt} satırda sorun.','WARNING','KESIF',{'workCode':wc,'count':cnt},[{'label':label,'action':'OPEN_WORK','workCode':wc}])
     except Exception: pass
-    # [16] MB51 reconcile lazy TTL — her tick değil
-    if revision_runtime.should_run_mb51_notification_scan(force=force_mb51):
+    # [16] / hız paketi adım 2: MB51 reconcile her tick full değil — TTL + digest cache
+    try:
+        root=load_record_root()
+        material_paths=sorted(record_visible_paths('materials',root),key=lambda x:x.stat().st_mtime,reverse=True)[:80]
+        materials_stamp='|'.join(
+            f"{p.name}:{p.stat().st_size}:{p.stat().st_mtime_ns}" for p in material_paths
+        )
+        eng_for_mb51=_engine_snapshot()
+        index_digest=str(
+            eng_for_mb51.get('indexSourceDigest')
+            or eng_for_mb51.get('sourceDigest')
+            or eng_for_mb51.get('buildId')
+            or ''
+        )
+        scan_digest=revision_runtime.notification_mb51_scan_digest(index_digest, materials_stamp)
+    except Exception:
+        material_paths=[]; index_digest=''; scan_digest=''
+    if revision_runtime.should_run_mb51_notification_scan(force=force_mb51, scan_digest=scan_digest):
         try:
-            root=load_record_root(); files=sorted(record_visible_paths('materials',root),key=lambda x:x.stat().st_mtime,reverse=True)[:80]
-            for path in files:
+            for path in material_paths:
                 try:
                     rows=_read_csv_dict(path)
                 except Exception: continue
@@ -1256,15 +1271,21 @@ def build_notifications(force_mb51=False):
                     r=group['rows'][0];res=str(r.get('RezervasyonNo') or '').strip();mat=group['materialCode'];approved=group['approvedQty']
                     decision='ONAYLA' if approved>0 else 'ONAYLAMA'
                     if not res or not mat:continue
-                    rec=_mb51_reconcile(res,mat,approved,mb51_reconciliation.header_scope(r,group['uom']))
+                    cid=str(r.get('KontrolID') or path.stem)
+                    scope=mb51_reconciliation.header_scope(r,group['uom'])
+                    item_key=revision_runtime.notification_mb51_item_key(cid, mat)
+                    item_digest=revision_runtime.notification_mb51_item_digest(
+                        cid, mat, approved, decision, scope, index_digest)
+                    rec=revision_runtime.get_mb51_reconcile_cache(item_key, item_digest)
+                    if rec is None:
+                        rec=_mb51_reconcile(res,mat,approved,scope)
+                        revision_runtime.put_mb51_reconcile_cache(item_key, item_digest, rec)
                     if not rec.get('verified'):
-                        cid=str(r.get('KontrolID') or path.stem)
                         _notif_upsert(d,f'MB51-UNVERIFIED-{cid}-{mat}','MB51 doğrulanamadı',str(rec.get('error') or ''),'CRITICAL','MB51',{'controlId':cid,'reservationNo':res,'materialCode':mat,**rec},[
                             {'label':'Rezervasyonu aç · kesin kayıt','action':'OPEN_RESERVATION','reservationNo':res,'materialCode':mat},
                             {'label':'Kontrol kayıtları (geçmiş)','action':'OPEN_RECORDS'},
                         ])
                         continue
-                    cid=str(r.get('KontrolID') or path.stem)
                     if decision!='ONAYLA' and rec.get('found') and float(rec.get('actualQty') or 0)>0:
                         _notif_upsert(
                             d,f'UNAPPROVED-{cid}-{mat}','Onaysız kalemde MB51',
