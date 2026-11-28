@@ -1,6 +1,6 @@
 Talep Kontrol — Tam dağıtım
 Ortak yayın klasörü
-\\10.55.2.238\paylasim\GM_Planlama_Tesis_Direktorlugu\MALZEME YÖNETİMİ MÜDÜRLÜĞÜ\3 - Müdürlük Ortak Alan\1-Ortak Döküman Alanı\8-Talep Kontrol\9-Uygulama
+\\cedas.com\paylasim\GM_Planlama_Tesis_Direktorlugu\MALZEME YÖNETİMİ MÜDÜRLÜĞÜ\3 - Müdürlük Ortak Alan\1-Ortak Döküman Alanı\8-Talep Kontrol\9-Uygulama
 
 YAYIN
 1. Mevcut Aktif\manifest.json dosyasının yedeğini alın.
@@ -11,9 +11,14 @@ YAYIN
 KURULU BİLGİSAYAR
 Talep Kontrol'ü tamamen kapatıp normal kısayolundan yeniden açın.
 Ağdaki Aktif yayına erişebilen, otomatik güncellemesi açık kurulumlar yeni paketi açılışta alır.
-Eski kısayol açılmıyorsa veya güncelleme başlamıyorsa, ZIP'teki Talep_Kontrol.exe'yi sorunlu bilgisayarda
-çalıştırın ve yukarıdaki ortak yayın klasörünü seçip kurulumu tamamlayın. Kurucu mevcut kurulumu bulduğunda Güncelle, Temiz kurulum ve İptal seçeneklerini gösterir.
-Güncelle ile yerel kullanıcı verileri taşınır. Temiz kurulum eski kurulum klasöründeki yerel verileri siler.
+Eski kısayol açılmıyorsa, güncelleme başlamıyorsa veya "Salt okunur / KESIFLER" gibi eski durum hataları
+sürüyorsa ZIP'teki Talep_Kontrol.exe'yi sorunlu bilgisayarda çalıştırın.
+Kurucu mevcut kurulum veya %LOCALAPPDATA%\TalepKontrol verisi bulduğunda Güncelle, Temiz kurulum ve İptal gösterir.
+Güncelle: yerel kullanıcı verilerini yeni pakete taşır.
+Temiz kurulum: çalışan servisi durdurur; %LOCALAPPDATA%\Programs\TalepKontrol, %LOCALAPPDATA%\TalepKontrol
+(Index, WebView2, güncelleme kayıtları) ve eski geçici/yedek klasörleri tamamen siler; sıfırdan kurar.
+Onay penceresinden sonra işlem geri alınamaz. 0-Database merkezi kayıtları silinmez.
+Doğrudan temiz kurulum: Talep_Kontrol.exe --clean-install
 Kurucu başarılı işlem sonunda eski kurulumun kalıcı yedeğini oluşturmaz.
 
 DOĞRULAMA
@@ -32,21 +37,34 @@ Ana ekran açıldıktan sonra veri kaynakları ve yeni paket durumu arka planda 
 Arka plan kontrolünde yeni paket bulunursa, bir sonraki açılışta doğrulanıp uygulanır.
 Güncelleme durumunu uygulamanın açılış bildiriminden izleyebilirsiniz.
 
+YEREL İNDEKS VE SALT OKUNUR
+Kullanılabilir yerel indeks varken (READY veya STALE) uygulama yazılabilir kalır.
+İndeks arka planda güncellenirken veya yeni kaynak onayı beklerken salt okunur kilidi konulmaz.
+Salt okunur yalnızca kaynak eksik, indeks yok/bozuk veya ilk kez hazırlanıyorsa görünür.
+
+KEŞİF BİRİMİ
+Kurumsal keşif CSV'lerinde birim sütunu yoksa ölçü birimi MB52 temel biriminden alınır.
+Keşif satırında birim yazılıysa MB52 ile aynı olmalıdır (ADT/AD eşdeğer sayılır).
+
 KEŞİF KAPSAMI
-Proje ve malzeme bazındaki kalan adet Keşif kaynağından alınır. Fiili hareketler MB51 ile doğrulanır.
-Talep Kontrol açıkken Yönetim Paneli > Kaynak Kapsamı ekranında hedef üretim yeri ve depo kodunu girin.
-Güncel kaynakları getir ile kaynakları yükleyin. Keşif raporundan fiili hareketlerin bakiyeye yansıdığını
-ve bekleyen ortak onayların bakiyeye yansımadığını teyit edin. Kanıt referansını girip kapsamı kaydedin.
-Kapsam kaydı Panel-Yetkileri altında tutulur. Keşif veya MB51 değiştiğinde kapsamı yeniden teyit edin.
-Yalnızca ZMM098 değiştiğinde mevcut keşif kapsamı geçerli kalır.
+Proje ve malzeme bazındaki kalan adet = Keşif − MB51 fiili (− varsa bekleyen onay).
+Keşif ve MB51 kaynakları yüklüyse kapsam teyidi otomatiktir; Yönetim Paneli kaydı zorunlu değildir.
+Örnek: Keşif 10, MB51 hedef depoya nakil 3 → kullanılabilir kalan 7.
+Yönetim Paneli > Kaynak Kapsamı ekranı isteğe bağlı belgeleme içindir.
 
 TEMİNAT KURALI
 SAP rezervasyon numarası zorunludur. ZMM098 açık rezervasyonlar dahil tutarı kullanılır.
 Yönetim Paneli kapsam ekranı sadece keşif doğrulaması içindir.
 
 
+KAYNAK TARAMA
+Uygulama klasörü: ...\8-Talep Kontrol
+Üst ortak alan: ...\1-Ortak Döküman Alanı (2-MB51, 3-MB52, 5-ZMM98, 7-ZMM048)
+Çakışmada en güncel ve yüksek güvenli dosya seçilir; eşitlikte üst klasör önceliklidir.
+
 MERKEZİ KAYNAK KOPYASI
 İlk okunan kaynaklar Windows yazma izni varsa 0-Database\KAYNAK_VERILERI altına kaydedilir.
+Dosyalar kısa içerik adıyla (dosyalar\<16hex>.csv) yazılır; derin UNC yollarında WinError 206 önlenir.
 İçeriği değişen dosyayı Veri Merkezi > Sistem ve Kaynaklar > Sistem Sağlığı ekranında
 Yeni veri var > Yeni Veriye Güncelle ile onaylayın. Kalite kontrolü başarılı olunca yeni kopya kullanılır.
 

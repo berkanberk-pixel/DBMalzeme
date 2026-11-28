@@ -1,0 +1,102 @@
+{
+  "reviewedCommit": "8618f5248aa66732e1b065d5be331d30ccd586d9",
+  "reviewDate": "2026-11-28",
+  "environment": "Windows; local pinned source copy; synthetic data; live UNC access blocked during review",
+  "suite": {
+    "total": 67,
+    "passed": 64,
+    "failures": 1,
+    "errors": 1,
+    "skipped": 1
+  },
+  "syntax": {
+    "pythonAST": "passed",
+    "nodeAppJS": "passed"
+  },
+  "testsNotRunInDocumentationRevision": true,
+  "limitations": [
+    "Live UNC/AD/SMB and multi-PC publication not tested",
+    "Installer, full UI and real distribution ZIP SHA256 not verified"
+  ],
+  "failures": [
+    {
+      "test": "test_cache_writes_short_layout_and_reads_legacy",
+      "cause": "Windows CRLF fixture: expected8 vs actual10 bytes; not proof of production legacy read failure"
+    },
+    {
+      "test": "test_narrower_extract_keeps_previous_document",
+      "cause": "WinError32 during SQLite tempdir cleanup; not a business assertion failure"
+    }
+  ],
+  "skippedTest": "test_exe_mentions_full_purge: EXE not downloaded",
+  "syntheticScenarios": {
+    "duplicate_reservation_item": {
+      "oldActualRows": 2,
+      "newActualRows": 2,
+      "oldQty": 5,
+      "newQty": 12,
+      "mappedRows": 1,
+      "detected": {
+        "added": 0,
+        "changed": 0,
+        "removed": 0,
+        "unchanged": 1,
+        "totalOld": 1,
+        "totalNew": 1,
+        "hasChanges": false,
+        "sampleAdded": [],
+        "sampleChanged": [],
+        "sampleRemoved": []
+      }
+    },
+    "no_row_change_accept": {
+      "acceptStatus": "ACTIVE",
+      "rowDiff": {
+        "added": 0,
+        "changed": 0,
+        "removed": 0,
+        "unchanged": 1,
+        "totalOld": 1,
+        "totalNew": 1,
+        "hasChanges": false,
+        "sampleAdded": [],
+        "sampleChanged": [],
+        "sampleRemoved": [],
+        "source": "ZMM098",
+        "logical": "ZMM098"
+      },
+      "rebuildCalled": false,
+      "indexStatus": "STALE",
+      "sourceIndexMatch": false
+    },
+    "source_level_reload": {
+      "incremental": true,
+      "clearCalls": 1,
+      "sourceRowsRead": 2
+    },
+    "administrator_responsibility_update": {
+      "body": {
+        "ok": false,
+        "code": "AD_ADMIN_REQUIRED",
+        "error": "Yönetim yetkisi Windows Active Directory grubundan doğrulanamadı. Yerel rol ayarı yetki yerine geçmez."
+      },
+      "status": 403
+    },
+    "windows_newline_fixture": {
+      "expectedByTest": 8,
+      "actualBytes": 10
+    }
+  },
+  "projectLabelProbe": {
+    "withoutDepot": "Proje A",
+    "withDepot": "Proje A"
+  },
+  "distribution": {
+    "version": "1.0.4",
+    "build": "20261127-v1.0.4-async-force",
+    "release": "talep-3548f277c3dbf2a0",
+    "manifestAndConfigReleaseMatch": true,
+    "manifestAndTreeZipBytes": 56362293,
+    "actualZipHashVerified": false
+  }
+}

@@ -1,0 +1,13 @@
+---
+description: Talep Kontrol ortak kullanıcı kararları ve revizyon takibi
+alwaysApply: true
+---
+
+Bu projede önce `AGENTS.md` ve `docs/coordination/README.md` dosyalarını okuyun.
+Kullanıcı kararları `USER_DECISIONS.md`, açık bulgular `REVISION_BACKLOG.md`, yapılan işler `REVISION_LOG.md` içindedir; hepsi `docs/coordination/` altındadır.
+İnceleme tarihi ve sabit commit'i dikkate alın; eski bulguları yeni kodda yeniden doğrulayın.
+Kodda bulunmayı, test geçmesini ve kullanıcı tarafından istenmesini ayrı değerlendirin.
+Tamamen yerel WPF hedefini WebView2 ile eşdeğer saymayın; keşif iş kurallarını sessizce değiştirmeyin.
+İşi bitirince ilgili istek/bulgu kimliği, değişiklik ve test kanıtıyla ortak günlüğü güncelleyin.
+Son kullanıcı kararı: önce Cursor/Codex araştırması ve karşılıklı eleştiri; ardından kullanıcıyla plan incelemesi.
+Uygulama kodunun geliştirilmesi için bu planın açık kullanıcı onayı beklenir. Koordinasyon servisi kurulumu yetkilidir.

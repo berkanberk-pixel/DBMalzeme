@@ -1,0 +1,10 @@
+Talep Kontrol otomatik guncelleme
+
+Masaustu kısayolundaki Talep Kontrol'e basın. Ayrı GUNCELLE.cmd gerekmez.
+Yalnizca yetkili yoneticinin Aktif olarak yayimladigi ZIP kabul edilir.
+Dogrulama ve kurulum, ana GUI acilmadan once gerceklesir.
+Ag erisiminde sorun varsa kurulu uygulama acilmaya devam eder.
+Merkezi kesin kayit guvenlik kilidi bu islemle degistirilmez.
+
+Guncelleme gunlugu:
+%LOCALAPPDATA%\TalepKontrol\Guncelleme\guncelleme.log

@@ -1,0 +1,7 @@
+_review/
+*.pyc
+__pycache__/
+.pytest_cache/
+.DS_Store
+installer_src/bin/
+installer_src/obj/

@@ -1,0 +1,114 @@
+{
+  "reviewedCommit": "8618f5248aa66732e1b065d5be331d30ccd586d9",
+  "baseline": "Previously delivered external FIX13 CURRENT_RULES.json; baseline ZIP is not part of this repository",
+  "meaning": "Observed differences, not approval or an instruction to revert formulas",
+  "differences": [
+    {
+      "path": "kesif.canonical_headers",
+      "before": null,
+      "after": [
+        "Depo Kodu",
+        "Grup No",
+        "Grup Tanımı",
+        "Yüklenici",
+        "Proje",
+        "Malzeme Kodu",
+        "Keşif"
+      ]
+    },
+    {
+      "path": "kesif.decision",
+      "before": "Yeni talep doğrudan kalan keşif ile karşılaştırılır.",
+      "after": "Yeni talep hesaplanan kalan keşif ile karşılaştırılır."
+    },
+    {
+      "path": "kesif.formula",
+      "before": "Kalan Kesif = Teslim Edilen - Verilen Malzeme Toplami",
+      "after": "Kaynak yalnız Keşif miktarını verir. Kalan = Keşif − (MB51 fiili + ara/kesin taahhüt)."
+    },
+    {
+      "path": "kesif.planned_field",
+      "before": "Teslim Edilen",
+      "after": "Keşif"
+    },
+    {
+      "path": "kesif.planned_field_aliases",
+      "before": null,
+      "after": [
+        "Keşif",
+        "Teslim Edilen",
+        "İhale Keşfi"
+      ]
+    },
+    {
+      "path": "kesif.previously_delivered_field",
+      "before": "Verilen Malzeme Toplamı",
+      "after": null
+    },
+    {
+      "path": "kesif.remaining_field",
+      "before": "Teslim Edilen - Verilen Fark",
+      "after": null
+    },
+    {
+      "path": "kesif.source_reads_given_remaining",
+      "before": null,
+      "after": false
+    },
+    {
+      "path": "principles.central_index_read_only",
+      "before": null,
+      "after": true
+    },
+    {
+      "path": "principles.central_index_snapshot",
+      "before": null,
+      "after": "0-Database/KAYNAK_INDEKS"
+    },
+    {
+      "path": "principles.central_source_of_truth",
+      "before": null,
+      "after": "0-Database/KAYNAK_VERILERI"
+    },
+    {
+      "path": "principles.concurrent_clients_ok",
+      "before": null,
+      "after": true
+    },
+    {
+      "path": "principles.conflict_policy",
+      "before": null,
+      "after": "fresher_wins"
+    },
+    {
+      "path": "principles.decisions_in_committed_bundles",
+      "before": null,
+      "after": true
+    },
+    {
+      "path": "principles.no_shared_writable_sqlite",
+      "before": null,
+      "after": true
+    },
+    {
+      "path": "principles.source_update_row_diff",
+      "before": null,
+      "after": true
+    },
+    {
+      "path": "principles.use_local_index_when_sources_unchanged",
+      "before": null,
+      "after": true
+    },
+    {
+      "path": "tesis.project_remaining_rule",
+      "before": "Yeni dağıtım, proje bazındaki Teslim Edilen - Verilen Malzeme Toplamı kalanını aşamaz.",
+      "after": "Yeni dağıtım, proje bazındaki kalan keşfi (Keşif − fiili/ara düşüm) aşamaz."
+    },
+    {
+      "path": "tesisDiscoveryRule",
+      "before": "TESİS: seçilen proje için Teslim Edilen = planlanan keşif, Verilen Malzeme Toplamı = önceki teslim, Teslim Edilen - Verilen Fark = mevcut kalan keşif; yeni proje dağıtımı mevcut kalan keşfi aşamaz. MB52 stok miktarı keşiften düşülmez.",
+      "after": "TESİS: kurumsal keşif sütunları Depo Kodu;Grup No;Grup Tanımı;Yüklenici;Proje;Malzeme Kodu;Keşif. Kaynak yalnız Keşif miktarını verir; Verilen/Kalan okunmaz. Fiili düşüm MB51 ve ara/kesin kayıtlarla yapılır. MB52 stok miktarı keşiften düşülmez."
+    }
+  ]
+}

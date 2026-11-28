@@ -1,9 +1,10 @@
 {
   "schema": 1,
   "product": "Talep Kontrol",
-  "release_id": "talep-7d77ca9e759023ce",
-  "package": "Paketler/talep-7d77ca9e759023ce/TalepKontrol.zip",
-  "sha256": "7d77ca9e759023ce537533cd94f6f74f9d3c6d1276af50ae3399f46448dd5aae",
-  "size_bytes": 56439114,
-  "published_utc": "2026-11-24T05:51:54.223773+00:00"
+  "release_id": "talep-f02c99deb4b4f0d0",
+  "package": "Paketler/talep-f02c99deb4b4f0d0/TalepKontrol.zip",
+  "sha256": "41c73f9b9178b244e4930ebf1b3698ff506ab4eda19bcde834bf240989c478a7",
+  "size_bytes": 56305251,
+  "published_utc": "2026-11-28T18:14:53.071034+00:00",
+  "notes": "v1.0.4-central-seed: 0-Database/KAYNAK_INDEKS → local Index fast boot (no shared writable SQLite)"
 }
