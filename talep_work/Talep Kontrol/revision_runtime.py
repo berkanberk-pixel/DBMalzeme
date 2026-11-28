@@ -226,6 +226,43 @@ def mb51_realized(rec: Optional[dict]) -> bool:
         return False
 
 
+def auto_final_eligible(is_tesis: bool, rec: Optional[dict]) -> bool:
+    """[3] Tesis hariç: MB51 fiili gerçekleşmişse otomatik kesin kayıt adayı (fark dahil)."""
+    if is_tesis:
+        return False
+    return mb51_realized(rec)
+
+
+def apply_mb51_absolute(row: Optional[dict], rec: Optional[dict]) -> dict:
+    """MB51 mutlak veri: farkta fiili miktar kazanır → OnaylananMiktar = actualQty.
+
+    Tesis dışı otomatik kesin kayıtta kullanılır. Ortak yazılabilir SQLite yok.
+    """
+    out = dict(row or {})
+    if not mb51_realized(rec):
+        return out
+    try:
+        actual = float((rec or {}).get('actualQty') or 0)
+    except (TypeError, ValueError):
+        return out
+    try:
+        approved = float(out.get('OnaylananMiktar') or out.get('Miktar') or 0)
+    except (TypeError, ValueError):
+        approved = 0.0
+    out['MB51FiiliMiktar'] = actual
+    out['MB51MutabakatDurumu'] = (rec or {}).get('status')
+    if abs(actual - approved) > 1e-9:
+        out['OnaylananMiktar'] = actual
+        note = str(out.get('KontrolNotu') or '')
+        marker = f'MB51_MUTLAK onceki={approved:g} fiili={actual:g}'
+        if 'MB51_MUTLAK' not in note:
+            out['KontrolNotu'] = (note + ' ' + marker).strip()
+        out['MB51MutlakUygulandi'] = True
+    else:
+        out['MB51MutlakUygulandi'] = False
+    return out
+
+
 def pending_auto_accept_enabled(cfg: Optional[dict] = None) -> bool:
     cfg = cfg or {}
     if 'silent_active_accept' in cfg:

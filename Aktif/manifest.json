@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "product": "Talep Kontrol",
-  "release_id": "talep-3548f277c3dbf2a0",
-  "package": "Paketler/talep-3548f277c3dbf2a0/TalepKontrol.zip",
-  "sha256": "e8b70d48b512cea427ea4247ff2053dd2647a46a02e11fb2b8b0584a56d5f1c1",
-  "size_bytes": 56362293,
-  "published_utc": "2026-11-27T17:50:37.033790+00:00",
-  "notes": "v1.0.4-async-force: force/monitor UNC async; poll no salt-okunur on timeout; MISSING+ACTIVE rows writable; pending not false missing"
+  "release_id": "talep-c8bfce843c30805a",
+  "package": "Paketler/talep-c8bfce843c30805a/TalepKontrol.zip",
+  "sha256": "33737b1293c0e944efd5562f61ecfa3d92e6150e5b39e2170d6083e2b31a843b",
+  "size_bytes": 56296264,
+  "published_utc": "2026-11-28T17:01:37.054852+00:00",
+  "notes": "v1.0.4-mb51-absolute: Tesis hariç MB51 fiili → otomatik kesin (COMMITTED); farkta MB51 kazanır; yetkili+audit"
 }

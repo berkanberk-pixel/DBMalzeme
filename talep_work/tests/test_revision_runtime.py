@@ -110,6 +110,40 @@ class Mb51RealizedTests(unittest.TestCase):
         self.assertFalse(rr.is_tesis_work('KET'))
 
 
+class Mb51AbsoluteKesinTests(unittest.TestCase):
+    """[3] Tesis hariç MB51 mutlak → otomatik kesin kayıt; farkta MB51 kazanır."""
+
+    def test_tesis_never_auto_final(self):
+        rec = {'verified': True, 'found': True, 'status': 'FIILI_MIKTAR_FARKI', 'actualQty': 7}
+        self.assertFalse(rr.auto_final_eligible(True, rec))
+        self.assertTrue(rr.auto_final_eligible(False, rec))
+
+    def test_mb51_wins_on_qty_diff(self):
+        row = {'MalzemeKodu': 'M1', 'OnaylananMiktar': 10, 'Miktar': 10, 'KalemKarari': 'ONAYLA'}
+        rec = {'verified': True, 'found': True, 'status': 'FIILI_MIKTAR_FARKI', 'actualQty': 7}
+        out = rr.apply_mb51_absolute(row, rec)
+        self.assertEqual(out['OnaylananMiktar'], 7)
+        self.assertTrue(out.get('MB51MutlakUygulandi'))
+        self.assertIn('MB51_MUTLAK', out.get('KontrolNotu') or '')
+        self.assertEqual(out['MB51FiiliMiktar'], 7)
+        # orijinal satır değişmez
+        self.assertEqual(row['OnaylananMiktar'], 10)
+
+    def test_no_override_when_matched(self):
+        row = {'MalzemeKodu': 'M1', 'OnaylananMiktar': 5, 'KalemKarari': 'ONAYLA'}
+        rec = {'verified': True, 'found': True, 'status': 'MUTABIK', 'actualQty': 5}
+        out = rr.apply_mb51_absolute(row, rec)
+        self.assertEqual(out['OnaylananMiktar'], 5)
+        self.assertFalse(out.get('MB51MutlakUygulandi'))
+
+    def test_not_realized_left_untouched(self):
+        row = {'MalzemeKodu': 'M1', 'OnaylananMiktar': 4}
+        rec = {'verified': True, 'found': False, 'status': 'MB51_BEKLENIYOR', 'actualQty': 0}
+        out = rr.apply_mb51_absolute(row, rec)
+        self.assertEqual(out['OnaylananMiktar'], 4)
+        self.assertNotIn('MB51MutlakUygulandi', out)
+
+
 class ServerWireTests(unittest.TestCase):
     def test_iter_candidates_uses_depth(self):
         import server as srv

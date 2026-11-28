@@ -1279,15 +1279,19 @@ def build_notifications(force_mb51=False):
                     elif decision=='ONAYLA' and rec.get('found') and rec.get('status')=='FIILI_MIKTAR_FARKI':
                         is_tesis=revision_runtime.is_tesis_work(r.get('IsTuru'))
                         target=str(r.get('HedefDepo') or '').strip()
-                        # [7] Tesis → proje dağılımı balonu
-                        title='TESİS: proje dağılımı gerekli' if is_tesis else 'MB51 ≠ onay'
-                        actions=[{'label':'Proje dağılımı','action':'OPEN_TESIS','depot':target,'reservationNo':res},
-                                 {'label':'Rezervasyonu aç · kesin kayıt','action':'OPEN_RESERVATION','reservationNo':res,'materialCode':mat},
-                                 {'label':'Kontrol kayıtları (geçmiş)','action':'OPEN_RECORDS'}] if is_tesis else [
-                                 {'label':'Rezervasyonu aç · kesin kayıt','action':'OPEN_RESERVATION','reservationNo':res,'materialCode':mat},
-                                 {'label':'Kontrol kayıtları (geçmiş)','action':'OPEN_RECORDS'}]
-                        _notif_upsert(d,f'MISMATCH-{cid}-{mat}',title,f'{mat}: onay {approved:g}, fiili {float(rec.get("actualQty") or 0):g}.'+(' Dağıtın.' if is_tesis else ''),'WARNING','MB51',{'controlId':cid,'reservationNo':res,'materialCode':mat,'depot':target,'approvedQty':approved,'requiresProjectRedistribution':is_tesis,**rec},actions)
-                    elif decision=='ONAYLA' and revision_runtime.mb51_realized(rec) and not revision_runtime.is_tesis_work(r.get('IsTuru')):
+                        if is_tesis:
+                            # [7] Tesis → proje dağılımı balonu; otomatik yazma yok
+                            _notif_upsert(d,f'MISMATCH-{cid}-{mat}','TESİS: proje dağılımı gerekli',f'{mat}: onay {approved:g}, fiili {float(rec.get("actualQty") or 0):g}. Dağıtın.','WARNING','MB51',{'controlId':cid,'reservationNo':res,'materialCode':mat,'depot':target,'approvedQty':approved,'requiresProjectRedistribution':True,**rec},[
+                                {'label':'Proje dağılımı','action':'OPEN_TESIS','depot':target,'reservationNo':res},
+                                {'label':'Rezervasyonu aç · kesin kayıt','action':'OPEN_RESERVATION','reservationNo':res,'materialCode':mat},
+                                {'label':'Kontrol kayıtları (geçmiş)','action':'OPEN_RECORDS'}])
+                        elif revision_runtime.auto_final_eligible(False, rec):
+                            # [3] MB51 mutlak — farkta MB51 kazanır → otomatik kesin kayıt adayı
+                            _notif_upsert(d,f'AUTO-FINAL-{cid}-{mat}','MB51 mutlak — otomatik kesin kayıt',f'{res} / {mat}: onay {approved:g}, fiili {float(rec.get("actualQty") or 0):g}; MB51 kazanır.','INFO','MB51',{'controlId':cid,'reservationNo':res,'materialCode':mat,'autoFinalCandidate':True,'mb51Absolute':True,'approvedQty':approved,**rec},[
+                                {'label':'Rezervasyonu aç','action':'OPEN_RESERVATION','reservationNo':res,'materialCode':mat},
+                                {'label':'Kontrol kayıtları (geçmiş)','action':'OPEN_RECORDS'},
+                            ])
+                    elif decision=='ONAYLA' and revision_runtime.auto_final_eligible(revision_runtime.is_tesis_work(r.get('IsTuru')), rec):
                         # [3] Tesis dışı gerçekleşme adayı bildirimi
                         _notif_upsert(d,f'AUTO-FINAL-{cid}-{mat}','MB51 gerçekleşti — otomatik kesin kayıt',f'{res} / {mat}: önceki karar + MB51 fiili doğrulandı.','INFO','MB51',{'controlId':cid,'reservationNo':res,'materialCode':mat,'autoFinalCandidate':True,**rec},[
                             {'label':'Rezervasyonu aç','action':'OPEN_RESERVATION','reservationNo':res,'materialCode':mat},
@@ -2057,9 +2061,10 @@ def _control_bundle_csvs(control_id):
 
 
 def try_auto_final_records(limit=20):
-    """[3] Tesis dışı: önceki karar + MB51 gerçekleşince otomatik kesin kayıt (yetkili+audit).
+    """[3] Tesis dışı: MB51 fiili → otomatik kesin kayıt (yetkili+audit).
 
-    Ortak yazılabilir SQLite yok — COMMITTED bundle üzerinden.
+    MB51 mutlak: miktar farkında fiili kazanır (OnaylananMiktar ← actualQty).
+    Tesis: otomatik yazma yok. Ortak yazılabilir SQLite yok — COMMITTED bundle.
     """
     cfg = load_config()
     if not revision_runtime.auto_final_record_enabled(cfg):
@@ -2096,7 +2101,7 @@ def try_auto_final_records(limit=20):
                 mat = str(row.get('MalzemeKodu') or '').strip()
                 approved = float(row.get('OnaylananMiktar') or row.get('Miktar') or 0)
                 rec = _mb51_reconcile(res, mat, approved, mb51_reconciliation.header_scope(header0, str(row.get('Birim') or '')))
-                if revision_runtime.mb51_realized(rec):
+                if revision_runtime.auto_final_eligible(False, rec):
                     realized.append((row, rec))
             if not realized or len(realized) < len(approved_rows):
                 # Tüm onaylı kalemler gerçekleşmeden otomatik yazma yok (güvenlik).
@@ -2117,20 +2122,24 @@ def try_auto_final_records(limit=20):
                     continue
                 payload_header = dict(header0)
                 payload_header['BalanceDigest'] = balances.get('balanceDigest')
-                payload_header['KayitIslemi'] = 'OTOMATIK_KESIN_KAYIT_MB51'
-                payload_header['SAPOnayiDegildir'] = 'EVET'
-                payload_header['Uyarilar'] = (str(payload_header.get('Uyarilar') or '') + ' | Otomatik kesin kayıt (MB51 gerçekleşme)').strip(' |')
-                # Capacity digests: yeniden hesapla
+                # Capacity digests: MB51 mutlak miktarlarla yeniden hesapla
                 materials_payload = []
+                mb51_overrides = []
                 for row, rec in realized:
-                    m = dict(row)
-                    m['MB51FiiliMiktar'] = rec.get('actualQty')
-                    m['MB51MutabakatDurumu'] = rec.get('status')
+                    m = revision_runtime.apply_mb51_absolute(row, rec)
                     m['KontrolNotu'] = (str(m.get('KontrolNotu') or '') + ' AUTO_FINAL').strip()
+                    if m.get('MB51MutlakUygulandi'):
+                        mb51_overrides.append(f"{m.get('MalzemeKodu')}:{rec.get('actualQty')}")
                     materials_payload.append(m)
                 # Diğer kalemler (onaylama/beklet) korunur
                 other = [dict(r) for r in materials0 if str(r.get('MalzemeKodu') or '').strip() not in {str(x.get('MalzemeKodu')) for x, _ in realized}]
                 materials_payload.extend(other)
+                payload_header['KayitIslemi'] = 'OTOMATIK_KESIN_KAYIT_MB51_MUTLAK' if mb51_overrides else 'OTOMATIK_KESIN_KAYIT_MB51'
+                payload_header['SAPOnayiDegildir'] = 'EVET'
+                warn = 'Otomatik kesin kayıt (MB51 gerçekleşme' + ('; MB51 mutlak)' if mb51_overrides else ')')
+                if mb51_overrides:
+                    warn += ' · fark MB51: ' + ', '.join(mb51_overrides[:8])
+                payload_header['Uyarilar'] = (str(payload_header.get('Uyarilar') or '') + ' | ' + warn).strip(' |')
                 capacity_request = capacity_request_from_control({'header': payload_header, 'materials': materials_payload, 'projects': projects0 or []})
                 if capacity_request:
                     checked = capacity_context(capacity_request)
@@ -2146,14 +2155,17 @@ def try_auto_final_records(limit=20):
                 )
                 revision_runtime.mark_auto_final_done(key)
                 DATA_ARCH_V2.audit('CONTROL', 'AUTO_FINAL_RECORD', user_context().get('login') or 'SYSTEM', 'CONTROL',
-                                  result.get('controlId'), {'reservationNo': res, 'previousControlId': cid, 'digest': digest})
+                                  result.get('controlId'), {
+                                      'reservationNo': res, 'previousControlId': cid, 'digest': digest,
+                                      'mb51Absolute': bool(mb51_overrides), 'mb51Overrides': mb51_overrides,
+                                  })
                 written.append(result)
                 d = _notif_state()
                 _notif_upsert(d, 'AUTO-FINAL-DONE-' + str(result.get('controlId')),
                               'Otomatik kesin kayıt yazıldı',
-                              f"{res}: MB51 gerçekleşme sonrası {result.get('controlId')} oluşturuldu.",
+                              f"{res}: MB51{' mutlak' if mb51_overrides else ''} sonrası {result.get('controlId')} oluşturuldu.",
                               'INFO', 'MB51',
-                              {'reservationNo': res, 'controlId': result.get('controlId'), 'previousControlId': cid},
+                              {'reservationNo': res, 'controlId': result.get('controlId'), 'previousControlId': cid, 'mb51Absolute': bool(mb51_overrides)},
                               [{'label': 'Kayıtlar', 'action': 'OPEN_RECORDS'}])
                 _save_notif_state(d)
             except Exception as exc:
